@@ -1,0 +1,17 @@
+syntax = "proto3";
+package sentra;
+
+message Empty {}
+message Ack { bool ok = 1; string msg = 2; }
+
+message PriceUpdate {
+  string sku = 1;
+  double price = 2;
+  int32 stock = 3;
+  int64 ts_ms = 4;
+}
+
+service Ingest {
+  rpc StreamUpdates (stream PriceUpdate) returns (Ack);
+  rpc Health (Empty) returns (Ack);
+}

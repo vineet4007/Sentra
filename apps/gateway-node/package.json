@@ -1,0 +1,12 @@
+{
+  "name": "@sentra/gateway-node",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "node src/index.js", "send": "node src/client-send.js" },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.10.6",
+    "@grpc/proto-loader": "^0.7.13",
+    "dotenv": "^16.4.5",
+    "kafkajs": "^2.2.4"
+  }
+}

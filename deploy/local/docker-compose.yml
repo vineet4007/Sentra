@@ -1,0 +1,62 @@
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.12
+    command: >
+      redpanda start --overprovisioned --smp 1 --memory 1G --reserve-memory 0M
+      --node-id 0 --check=false
+      --kafka-addr PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      --advertise-kafka-addr PLAINTEXT://redpanda:9092,OUTSIDE://localhost:19092
+    ports:
+      - "9644:9644"
+      - "19092:19092"
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sentra
+      POSTGRES_PASSWORD: sentra
+      POSTGRES_DB: sentra
+    ports: ["5432:5432"]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ports: ["8123:8123","9000:9000"]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml"]
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports: ["3030:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
+  loki:
+    image: grafana/loki:2.9.8
+    command: -config.file=/etc/loki/local-config.yaml
+    ports: ["3100:3100"]
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    ports: ["3200:3200"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.104.0
+    command: [ "--config=/etc/otelcol-config.yml" ]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otelcol.yaml:/etc/otelcol-config.yml
+
+networks:
+  default:
+    name: sentra-net
