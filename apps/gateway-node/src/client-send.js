@@ -5,7 +5,8 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROTO_PATH = path.resolve(__dirname, '../../packages/proto/sentra.proto');
+const PROTO_PATH = path.resolve(__dirname, '../../../packages/proto/sentra.proto');
+
 const pkgDef = protoLoader.loadSync(PROTO_PATH, { keepCase: true, longs: String });
 const proto = grpc.loadPackageDefinition(pkgDef).sentra;
 const client = new proto.Ingest(`localhost:${process.env.GRPC_PORT || 50051}`, grpc.credentials.createInsecure());
