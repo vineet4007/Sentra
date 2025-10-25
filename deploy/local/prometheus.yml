@@ -1,7 +1,13 @@
-global: { scrape_interval: 10s }
+global:
+  scrape_interval: 10s
 scrape_configs:
   - job_name: prometheus
     static_configs: [{ targets: ["prometheus:9090"] }]
   - job_name: services
     static_configs:
-      - targets: ["gateway-node:9464","worker-node:9464","pricing-java:9464","fanout-edge:9464","sentra-controller:9464"]
+      - targets:
+        - "gateway-node:9464"
+        - "worker-node:9464"
+        - "pricing-java:9464"
+        - "fanout-edge:9464"
+        - "sentra-controller:9464"
