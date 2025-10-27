@@ -1,8 +1,0 @@
-{
-  "release-type": "node",
-  "packages": {
-    "apps/gateway-node": {},
-    "apps/worker-node": {}
-  },
-  "include-component-in-tag": false
-}
