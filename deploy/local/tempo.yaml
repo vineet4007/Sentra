@@ -1,32 +1,38 @@
 server:
   http_listen_port: 3200
-  grpc_listen_port: 0
+  grpc_listen_port: 9095
+
 distributor:
   receivers:
     otlp:
       protocols:
-        grpc: {}
-        http: {}
+        grpc: {}   # listens on 0.0.0.0:4317 inside the container
+        http: {}   # listens on 0.0.0.0:4318 inside the container
+
 ingester:
   lifecycler:
     address: 0.0.0.0
     ring:
-      kvstore: { store: inmemory }
+      kvstore:
+        store: inmemory
       replication_factor: 1
   trace_idle_period: 10s
   max_block_bytes: 1048576
   max_block_duration: 5m
+
 compactor:
   compaction:
     compaction_window: 1h
     max_compaction_objects: 1000000
     block_retention: 1h
     compacted_block_retention: 10m
-query_frontend:
-  search: { max_duration: 12h }
-querier: {}
+
+querier: {}        # no frontend worker, keep it simple
+
 storage:
   trace:
     backend: local
-    wal:   { path: /tmp/tempo/wal }
-    local: { path: /tmp/tempo/blocks }
+    wal:
+      path: /tmp/tempo/wal
+    local:
+      path: /tmp/tempo/blocks

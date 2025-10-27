@@ -6,6 +6,11 @@ import * as protoLoader from '@grpc/proto-loader';
 import { Kafka } from 'kafkajs';
 import Fastify from 'fastify';
 import Redis from 'ioredis';
+import { context as otContext, trace, propagation, SpanKind } from '@opentelemetry/api';
+
+
+
+const tracer = trace.getTracer('sentra-gateway');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROTO_PATH = path.resolve(__dirname, '../../../packages/proto/sentra.proto');
@@ -33,20 +38,79 @@ async function initKafka() {
   await admin.disconnect();
 }
 
+// const serviceImpl = {
+//   Health: async (_call, cb) => cb(null, { ok: true, msg: 'gateway healthy' }),
+//   StreamUpdates: async (call, cb) => {
+//     let n = 0;
+//     try {
+//       for await (const upd of call) {
+//         if (!upd?.sku || !upd?.ts_ms) continue;
+//         await producer.send({ topic: TOPIC, messages: [{ key: upd.sku, value: JSON.stringify(upd) }] });
+//         n++;
+//       }
+//       cb(null, { ok: true, msg: `ingested ${n}` });
+//     } catch (e) {
+//       cb({ code: grpc.status.INTERNAL, message: e.message });
+//     }
+//   }
+// };
+
 const serviceImpl = {
   Health: async (_call, cb) => cb(null, { ok: true, msg: 'gateway healthy' }),
+
   StreamUpdates: async (call, cb) => {
     let n = 0;
-    try {
-      for await (const upd of call) {
-        if (!upd?.sku || !upd?.ts_ms) continue;
-        await producer.send({ topic: TOPIC, messages: [{ key: upd.sku, value: JSON.stringify(upd) }] });
-        n++;
+    // parent span for the streaming RPC
+    const streamSpan = tracer.startSpan('ingest.stream', { kind: SpanKind.SERVER });
+    await otContext.with(trace.setSpan(otContext.active(), streamSpan), async () => {
+      try {
+        for await (const upd of call) {
+          if (!upd?.sku || !upd?.ts_ms) continue;
+
+          // child span for a single publish
+          const publishSpan = tracer.startSpan('kafka.produce', {
+            kind: SpanKind.PRODUCER,
+            attributes: {
+              'messaging.system': 'kafka',
+              'messaging.destination': TOPIC,
+              'messaging.destination_kind': 'topic',
+              'sentra.sku': upd.sku
+            }
+          });
+
+          await otContext.with(trace.setSpan(otContext.active(), publishSpan), async () => {
+            // inject W3C trace context into carrier
+            const carrier = {};
+            propagation.inject(otContext.active(), carrier, {
+              set: (c, k, v) => { c[k] = v; }
+            });
+
+            // kafkajs expects header values as Buffer | string
+            const headers = {};
+            for (const [k, v] of Object.entries(carrier)) {
+              headers[k] = String(v);
+            }
+
+            await producer.send({
+              topic: TOPIC,
+              messages: [{ key: upd.sku, value: JSON.stringify(upd), headers }]
+            });
+
+            n++;
+          });
+
+          publishSpan.end();
+        }
+
+        streamSpan.setAttribute('sentra.ingested', n);
+        cb(null, { ok: true, msg: `ingested ${n}` });
+      } catch (e) {
+        streamSpan.recordException(e);
+        cb({ code: grpc.status.INTERNAL, message: e.message });
+      } finally {
+        streamSpan.end();
       }
-      cb(null, { ok: true, msg: `ingested ${n}` });
-    } catch (e) {
-      cb({ code: grpc.status.INTERNAL, message: e.message });
-    }
+    });
   }
 };
 

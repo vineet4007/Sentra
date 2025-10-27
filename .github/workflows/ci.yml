@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: |
+          npm -C apps/gateway-node ci
+          npm -C apps/worker-node ci
+
+      - name: Basic checks
+        run: |
+          node -v
+          npm -C apps/gateway-node -v
+          npm -C apps/worker-node -v
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tags
+        id: tags
+        shell: bash
+        run: |
+          SHA=${GITHUB_SHA::7}
+          echo "gw=ghcr.io/${{ github.repository }}/gateway:${SHA}" >> $GITHUB_OUTPUT
+          echo "wk=ghcr.io/${{ github.repository }}/worker:${SHA}" >> $GITHUB_OUTPUT
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VER=${GITHUB_REF#refs/tags/}
+            echo "gw_ver=ghcr.io/${{ github.repository }}/gateway:${VER}" >> $GITHUB_OUTPUT
+            echo "wk_ver=ghcr.io/${{ github.repository }}/worker:${VER}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build & push gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/gateway-node/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.gw }}
+            ${{ steps.tags.outputs.gw_ver || '' }}
+
+      - name: Build & push worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/worker-node/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.wk }}
+            ${{ steps.tags.outputs.wk_ver || '' }}
