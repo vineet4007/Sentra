@@ -1,98 +1,68 @@
-# 🛰️ Sentra — The Real-Time Deployment Intelligence Platform
+# 🛰️ Sentra — Real-Time, Multi-Cloud Deployment Intelligence
 
-## 💡 What Is Sentra?
+## What It Is
+**Sentra** is a **self-hosted control plane** that makes deployments **safe and autonomous** by using **live telemetry** to drive **canary/blue-green** rollouts. It integrates **cleanly across AWS, Azure, and GCP** — and works in hybrid setups.
 
-**Sentra** is a **self-hosted, real-time deployment intelligence platform** that continuously monitors, analyzes, and controls software rollouts.
-
-It integrates **metrics (Prometheus)**, **logs (Loki)**, and **traces (Tempo)** into a single real-time decision engine —  
-allowing deployments to automatically **pause, rollback, or promote** based on live telemetry.
-
-In short:  
-> Sentra transforms observability from passive monitoring into **active, intelligent deployment control**.
+**Outcome:** Zero-downtime releases with **automatic promote, pause, and rollback** based on real-time SLOs.
 
 ---
 
-## ⚙️ The Problem
-
-Modern CI/CD systems (GitHub Actions, Jenkins, ArgoCD) deploy code — but they’re **blind** to what happens after.
-
-- Deployments fail silently in production.  
-- Metrics and logs are viewed only *after* user-impact.  
-- Rollbacks are manual, slow, and error-prone.  
-- “Zero downtime” is still wishful thinking.
-
-The result:  
-Downtime, lost revenue, and slower release velocity — especially at scale.
+## Why It Matters
+Traditional CI/CD deploys code blindly; observability alerts you **after** users are impacted.  
+Sentra creates a **closed loop**: deploy → observe (metrics/logs/traces) → decide → act.  
+Detection and reaction happen in **seconds**, not minutes.
 
 ---
 
-## 🚀 The Solution
+## How It Works (5 steps)
+1. Start canary at **5%** traffic.  
+2. Collect telemetry (Prometheus/Loki/Tempo) continuously.  
+3. Every few seconds, evaluate SLOs (error rate, p95, log error ratio, trace error ratio).  
+4. **Healthy** → promote to **15% → 30% → 50% → 100%**.  
+5. **Degraded** → auto-pause or **rollback**; everything is audited and visible live in the UI.
 
-Sentra introduces a **closed-loop feedback system** between deployments and observability:
-
-| Step | Action |
-|------|---------|
-| 1️⃣ | Rollout begins (e.g. 5% traffic). |
-| 2️⃣ | Sentra collects real-time telemetry (metrics, logs, traces). |
-| 3️⃣ | Every few seconds, SLO gates are evaluated. |
-| 4️⃣ | Healthy → promote rollout (15%, 30%, 50%). |
-| 5️⃣ | Degraded → pause or rollback automatically. |
-
-This creates a **self-correcting deployment process** — eliminating downtime and reducing manual intervention.
+**Telemetry-to-decision latency:** ~**2–5 s**.
 
 ---
 
-## 🧠 Why It Matters
+## Multi-Cloud Integration
+- **Kubernetes (EKS/AKS/GKE):** Istio/Linkerd (precise L7) or NGINX canary; replica fallback mode.  
+- **Serverless:** AWS Lambda aliases, GCP Cloud Run revisions, Azure Functions slots.  
+- **Containers:** AWS ECS (ALB weights/CodeDeploy), Azure Container Apps.  
+- **VMs/legacy:** LB backend weighting; agents for telemetry.
 
-| Problem | Traditional Tools | Sentra |
-|----------|------------------|--------|
-| Monitoring | Reactive | Proactive & automatic |
-| Rollback | Manual | Instant, autonomous |
-| Observability | Disconnected | Unified (metrics + logs + traces) |
-| Deployment safety | Guesswork | Data-driven, real-time |
-| Hosting | Cloud vendor lock-in | 100% self-hosted |
-
----
-
-## 🧩 Architecture Overview
-
-**Core Components**
-- **Go Rollout Controller:** Evaluates telemetry, drives rollout decisions.
-- **Node.js API:** REST + WebSocket for integration and UI.
-- **Next.js Dashboard:** Live rollout analytics and controls.
-- **MySQL:** Stores rollout state, policies, and audit history.
-- **Redis:** Pub/sub for real-time state propagation.
-- **Prometheus / Loki / Tempo:** Observability data sources.
-- **Python FastAPI (future):** ML-based predictive rollback & SLO optimization.
-
-**Telemetry loop latency:** ~2–5 seconds from data ingestion to decision.
+**Two deployment models:**
+- **Centralized control plane** (simple start)  
+- **Federated satellites** (scale, low egress/latency)
 
 ---
 
-## 📊 Impact
-
-| Metric | Before Sentra | After Sentra |
-|---------|----------------|---------------|
-| Rollout failure detection | Minutes | Seconds |
-| Downtime duration | High (manual rollback) | Near-zero |
-| Deployment safety | Manual monitoring | Automated SLO enforcement |
-| Release velocity | Slower (risk-averse) | Continuous, safe |
-| Developer load | Reactive firefighting | Observability-driven automation |
+## Architecture (at a glance)
+- **Go Rollout Controller:** telemetry polling + decisions  
+- **Node.js API:** REST/WS, policies & audit  
+- **Next.js UI:** live rollout dashboard  
+- **MySQL:** policies, deployments, incidents (authoritative)  
+- **Redis:** live state, locks, pub/sub  
+- **Prometheus / Loki / Tempo:** metrics, logs, traces (OTel)
 
 ---
 
-## 🧭 Vision
-
-> **“Observability that acts.”**  
-> Sentra is building the first **deployment-aware observability system** —  
-> unifying telemetry, intelligence, and automation to make **zero-downtime deployments the default**.
-
----
-
-## 🏢 Ownership
-
-Developed by **AshSan Labs**.  
-© 2025 All Rights Reserved.
+## Impact (Before vs After)
+| Metric | Before | With Sentra |
+|---|---|---|
+| Failure detection | Minutes | **Seconds** |
+| Downtime | High | **Near-zero** |
+| Rollbacks | Manual | **Autonomous** |
+| Release velocity | Slow (risk-averse) | **Continuous & safe** |
+| Multi-cloud ops | Fragmented | **Unified adapters** |
 
 ---
 
+## Roadmap
+1) Controller + multi-cloud adapters  
+2) Next.js UI (live SLO overlays)  
+3) Federated satellites for large estates  
+4) ML-assisted predictions & dynamic SLOs  
+5) Packaged distribution (.exe/.dmg)
+
+© 2025 AshSan Labs. All rights reserved.

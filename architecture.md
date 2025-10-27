@@ -1,163 +1,157 @@
-# 🛰️ Sentra — Real-Time Deployment Intelligence Platform
+# 🛰️ Sentra — Real-Time, Multi-Cloud Deployment Intelligence
 
 ## 🔍 Overview
+**Sentra** is a **self-hosted, deployment-aware observability and control plane** that runs in your infra and automates canary/blue-green rollouts using **live telemetry** (metrics, logs, traces). It integrates **cleanly across AWS, Azure, and GCP** — and supports hybrid/multi-cloud estates.
 
-**Sentra** is a **self-hosted, deployment-aware observability and intelligence platform**  
-that continuously **monitors, analyzes, and controls application rollouts** in real time.
-
-Unlike traditional CI/CD or monitoring tools, Sentra **connects the dots** between deployments, telemetry, and reliability —  
-making rollout decisions based on *live metrics, logs, and traces* instead of static thresholds or manual checks.
-
-Sentra’s goal:  
-> Enable fully automated, zero-downtime, risk-aware deployments across environments  
-> — without sacrificing visibility, safety, or developer control.
+**Core promise:** zero-downtime, risk-aware releases with **automatic promote/pause/rollback** based on real-time SLOs.
 
 ---
 
-## 🎯 Core Motive
+## 🎯 What Problems Sentra Solves
+- **Blind deployments:** CI/CD pushes code without knowing if it’s safe.  
+- **Reactive observability:** you notice issues after users do.  
+- **Manual rollbacks:** slow, error-prone, stressful.  
+- **Inconsistent multi-cloud ops:** every provider has different knobs for traffic splitting.
 
-Modern DevOps pipelines still deploy **blindly** — they push versions out, then react *after* users report issues.  
-Sentra flips that model.
-
-It continuously ingests **real-time telemetry** during a rollout and uses it to:
-- Detect regressions or anomalies.
-- Automatically pause, rollback, or promote deployments.
-- Correlate metrics, traces, and logs to each deployment step.
-- Provide a unified dashboard for **deployment health analytics**.
-
-Sentra isn’t just observability. It’s **observability that acts**.
+**Sentra** creates a **closed-loop** between rollouts and telemetry, standardizing control across clouds.
 
 ---
 
-## 🧠 Key Capabilities
+## 🧩 Multi-Cloud Topologies
 
-| Category | Description |
-|-----------|--------------|
-| **Intelligent Rollouts** | Dynamic rollout progression (e.g. 5% → 15% → 30% → 50%) based on live metrics and anomaly detection. |
-| **Auto-Rollback & Pause** | Instantly halts or reverses deployments when SLOs degrade or errors spike. |
-| **Real-Time Telemetry Loop** | Evaluates Prometheus, Loki, and Tempo data every few seconds to drive rollout decisions. |
-| **Trace-Linked Analysis** | Correlates OTel spans and errors to specific versions and rollout steps. |
-| **Unified UI** | Next.js-based dashboard with live rollout status, metrics, and trace inspection. |
-| **Zero-Downtime Strategy** | Smart canary + blue/green orchestration with adaptive rollout speed. |
-| **Self-Hosted** | Fully containerized; runs inside your infrastructure with no vendor lock-in. |
+### A) Centralized Control Plane (start here)
+- One global Sentra control plane (Node API + Go controller + MySQL/Redis).
+- All clusters/services export telemetry to central Prometheus/Loki/Tempo.
+- Controller acts remotely via K8s/Cloud APIs.
+
+**Pros:** simple; fast to adopt.  
+**Cons:** cross-cloud telemetry egress & latency to central plane.
+
+### B) Federated Satellites (scale here)
+- A **Sentra Satellite** (controller + collectors) per cluster/region/cloud.
+- A small **Global Coordinator** (Node API + MySQL/Redis) aggregates policies & audits.
+- Decisions are **local**; only summaries stream centrally.
+
+**Pros:** low egress/latency, fault isolation, scales to large estates.  
+**Cons:** more components to operate.
 
 ---
 
-## 🏗️ Architecture
-
-### 🧩 High-Level Diagram
+## 🧠 Architecture (High Level)
 
              ┌───────────────────────────┐
              │        Next.js UI         │
              │  Live rollout + analytics │
              └────────────┬──────────────┘
-                          │ WebSocket / REST
+                          │ REST / WS
                           ▼
              ┌───────────────────────────┐
              │        Node API Layer     │
-             │  Policy mgmt + audit log  │
+             │  Policies + audit + auth  │
              └────────────┬──────────────┘
                           │ Redis pub/sub
                           ▼
              ┌───────────────────────────┐
-             │      Go Rollout Controller│
-             │  Telemetry-driven deploys │
+             │     Go Rollout Controller │
+             │ Telemetry-driven decisions│
              ├────────────┬──────────────┤
-             │ Queries:   │ Actions:      │
-             │ - Prometheus (metrics)     │
-             │ - Loki (logs)              │
-             │ - Tempo (traces)           │
-             │                            │
-             │ Controls:                  │
-             │ - Kubernetes / Docker API  │
-             └────────────┬──────────────┘
-                          │
-       ┌──────────────────┴──────────────────┐
-       │               Datastores            │
-       │ MySQL → rollout state + policies    │
-       │ Redis → live cache + pub/sub        │
-       └─────────────────────────────────────┘
+             │ Queries    │ Acts on      │
+             │ Prometheus │ K8s Deployments
+             │ Loki       │ Ingress/Mesh (Istio/NGINX)
+             │ Tempo      │ Cloud APIs (Lambda/Run/ECS/Functions)
+             └────────────┴──────────────┘
+                    ▲               ▲
+                    │               │
+            MySQL (policies,     Kubernetes / Cloud
+            rollouts, audit)     provider APIs (AWS/Azure/GCP)
 
 ---
 
-## 📡 Telemetry Plane
+## 📡 Telemetry Plane (standard everywhere)
+- **Metrics → Prometheus (or VictoriaMetrics/Thanos):** error rate, p95 latency, resources.  
+- **Logs → Loki (Promtail/Fluent Bit):** error ratio, patterns.  
+- **Traces → Tempo (OTel):** distributed latency & failures.
 
-| Type | Source | Collector | Use Case |
-|------|---------|-----------|-----------|
-| **Metrics** | Application services | Prometheus | Error rates, latency, CPU/mem, SLO gates |
-| **Logs** | Stdout / structured JSON | Loki | Detect error spikes, anomalies |
-| **Traces** | OpenTelemetry spans | Tempo | Track distributed latency & errors |
+**Labels to standardize:** `cloud`, `region`, `cluster`, `project`, `service`, `env`, `version`.
 
-The **Go controller** polls these telemetry sources in 5–10 s intervals, evaluates gates, and reacts automatically.
-
----
-
-## 🧩 Control Plane
-
-| Component | Description |
-|------------|--------------|
-| **Go Rollout Controller** | Core logic — runs rollout loops, polls telemetry, applies policy logic, and issues promote/pause/rollback commands. |
-| **Node API** | REST + WebSocket interface for UI and automation integrations. |
-| **MySQL** | Persistent store for rollout states, policies, and audit history. |
-| **Redis** | High-speed pub/sub for live state updates between controller and UI. |
-| **Next.js Frontend** | Real-time rollout visualization, telemetry overlays, and operator actions. |
+**Real-time loop:** evaluate every **2–5 s** with sliding windows (e.g., 30–60 s).
 
 ---
 
-## ⚙️ Technology Stack
+## 🔧 Control Adapters (per runtime)
 
-| Layer | Technology | Purpose |
-|-------|-------------|----------|
-| Backend (Gateway/API) | **Node.js (TypeScript)** | API, SSE/WS, event hub |
-| Rollout Engine | **Go (v1.23)** | High-concurrency telemetry polling & decision logic |
-| Worker (Processing) | **Java 25 (Loom)** | Parallel log/trace aggregation and enrichment |
-| Observability | **Prometheus + Loki + Tempo** | Metrics, logs, and traces pipeline |
-| Cache | **Redis** | Live state and message bus |
-| Database | **MySQL** | Persistent rollout state and configs |
-| Frontend | **Next.js (SSR)** | Dashboard and real-time controls |
-| ML Automation (future) | **Python FastAPI** | Anomaly detection, predictive scaling |
-| Deployment | **Docker Compose / Kubernetes** | Fully containerized, self-hosted stack |
+### Kubernetes (EKS/AKS/GKE)
+- **Ingress/mesh traffic split:**  
+  - **Istio/Linkerd** → VirtualService/ServiceProfile weights (precise).  
+  - **NGINX Ingress** → canary annotations (by weight, header, or cookie).  
+  - **Fallback:** replica-based approximation (document precision limits).
+- **Identity:** IRSA (AWS), Workload Identity (Azure/GCP).
 
----
+### Serverless
+- **AWS Lambda** → weighted **aliases**.  
+- **GCP Cloud Run** → **revision traffic percentages**.  
+- **Azure Functions** → **slots + routing rules**.
 
-## 🔄 Real-Time Evaluation Loop
+### Container services
+- **AWS ECS/Fargate** → ALB **weighted target groups** or **CodeDeploy** blue/green.  
+- **Azure Container Apps** → revision split API.  
+- **GCP Cloud Run (containers)** → same as serverless.
 
-1. **Canary step deployed (5% traffic).**  
-2. **Telemetry polled every few seconds:**
-   - Prometheus → error rate, latency
-   - Loki → log error ratio
-   - Tempo → trace latency and error count
-3. **SLOs evaluated.**
-4. **Pass → increase traffic; Fail → pause or rollback.**
-5. **UI updates instantly via WebSocket.**
-
-Each decision is traced and logged for auditability.
+### VMs/legacy
+- LB backend weights (ALB/NGINX/Envoy/NGFW); OTel Collector + Promtail agents on VMs.
 
 ---
 
-## 🧭 Roadmap
+## 🗄️ Control-Plane Data (MySQL) — minimal, audit-friendly
+- **projects:** id, name, repo_url  
+- **services:** project_id, name, k8s identifiers, adapter type  
+- **environments:** project_id, name, kube_context/namespace  
+- **policies:** service_id/env_id, SLOs (JSON), steps `[5,15,20,30,30]`, windows, pass_count  
+- **deployments:** service_id/env_id, image/revision, status, started/completed  
+- **rollout_steps:** deployment_id, step_index, weight, status, metrics_snapshot, decision  
+- **incidents:** deployment_id, step_index, type, details
 
-| Phase | Focus |
-|--------|--------|
-| **1** | Gateway + Worker + ClickHouse analytics (completed) |
-| **2** | Real-time tracing + OTel instrumentation (in progress) |
-| **3** | **Go rollout controller** (real-time deployment intelligence) |
-| **4** | Next.js frontend with live dashboard & control UI |
-| **5** | ML automation for predictive rollbacks and dynamic SLO tuning |
-| **6** | Packaging → `.exe` / `.dmg` for self-hosted clients |
-
----
-
-## 🚀 Vision
-
-Sentra will become the **first self-hosted, real-time deployment intelligence system**  
-that unifies observability, rollouts, and automated recovery in a single, cohesive platform.
-
-It’s not just about seeing the problem — it’s about **preventing it before users notice**.
+Redis handles **live state, locks, pub/sub**.
 
 ---
 
-## 📜 License & Ownership
+## 🔄 Decision Loop (deterministic)
+1. Set target traffic (e.g., 5%).  
+2. Warm-up 30–60 s.  
+3. Every 5 s, evaluate gates over sliding window:  
+   - `error_rate ≤ 1%` (PromQL)  
+   - `p95_latency_ms ≤ 400` (PromQL)  
+   - `log_error_ratio ≤ 0.5%` (Loki)  
+   - *(optional)* `trace_error_ratio ≤ 0.5%` (TraceQL)  
+4. **All pass** N consecutive times → promote to next step.  
+5. **Fail** → pause; if severe → rollback.  
+6. Stream state to UI (WS/SSE) and snapshot to MySQL (audit).
 
-© 2025 AshSan Labs. All rights reserved.  
-Sentra is developed and maintained under the AshSan Labs initiative.
+---
+
+## 🔒 Identity, Security, Residency
+- **Identity:** STS AssumeRole (AWS), AAD Workload Identity (Azure), Workload Identity Federation (GCP).  
+- **Secrets:** cloud secret managers + CSI drivers.  
+- **mTLS/TLS:** OTel exports + control plane APIs.  
+- **Residency:** keep **telemetry stores per region/tenant**; stream only summaries centrally if required.
+
+---
+
+## 🧭 Tech Stack
+- **Rollout Engine:** Go (1.23+)  
+- **API Layer:** Node.js (TypeScript)  
+- **Frontend:** Next.js (SSR)  
+- **Control Stores:** MySQL (authoritative), Redis (real-time)  
+- **Telemetry:** Prometheus, Loki, Tempo (OTel)  
+- **(Later)** ML: Python FastAPI for predictive rollbacks
+
+---
+
+## 🗺️ Roadmap
+1) Controller + Node API (multi-cloud adapters)  
+2) Next.js UI (live rollouts, SLO overlays, trace/log links)  
+3) Precise L7 splits (Istio/NGINX); fallback replicas documented  
+4) Federated satellites for large estates  
+5) ML-assisted automation & dynamic SLOs; packaging (.exe/.dmg) last
+
+© 2025 AshSan Labs. All rights reserved.
