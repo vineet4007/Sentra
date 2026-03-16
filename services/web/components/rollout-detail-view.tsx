@@ -1,0 +1,185 @@
+import Link from 'next/link'
+import type { Rollout } from '@/lib/types'
+import { LiveEventStream } from '@/components/live-event-stream'
+import { StatusPill } from '@/components/status-pill'
+import { StepTrack } from '@/components/step-track'
+
+type RolloutDetailViewProps = {
+  rollout: Rollout
+}
+
+function toneForDecision(decision?: string | null): 'neutral' | 'good' | 'warn' | 'critical' | 'accent' {
+  switch (decision) {
+    case 'promote':
+    case 'initialize':
+      return 'good'
+    case 'rollback':
+      return 'critical'
+    case 'pause':
+      return 'warn'
+    case 'hold':
+      return 'accent'
+    default:
+      return 'neutral'
+  }
+}
+
+export function RolloutDetailView({ rollout }: RolloutDetailViewProps) {
+  const liveDecision = rollout.liveState?.decision || rollout.lastDecision || rollout.status
+  const gateResults = rollout.liveState?.evaluation?.gateResults || []
+  const telemetryWindow = rollout.liveState?.evaluation?.telemetrySnapshot?.window
+
+  return (
+    <main className="detail-page">
+      <section className="detail-header">
+        <div>
+          <Link href="/" className="back-link">
+            Back to control room
+          </Link>
+          <p className="eyebrow">{rollout.environmentName}</p>
+          <h1>{rollout.serviceName}</h1>
+          <p>{rollout.liveState?.summary || rollout.lastDecisionReason || 'Sentra is waiting for the next action.'}</p>
+        </div>
+        <StatusPill label={liveDecision || 'idle'} tone={toneForDecision(liveDecision)} />
+      </section>
+
+      <section className="detail-grid">
+        <div className="detail-main">
+          <section className="panel">
+            <header className="panel__header">
+              <div>
+                <p className="eyebrow">Rollout shape</p>
+                <h2>
+                  {rollout.currentWeight}% traffic on {rollout.revision}
+                </h2>
+              </div>
+            </header>
+            <StepTrack steps={rollout.steps} />
+            <div className="detail-metrics">
+              <article>
+                <span>Status</span>
+                <strong>{rollout.status}</strong>
+              </article>
+              <article>
+                <span>Started</span>
+                <strong>{rollout.startedAt ? new Date(rollout.startedAt).toLocaleString() : 'n/a'}</strong>
+              </article>
+              <article>
+                <span>Telemetry window</span>
+                <strong>
+                  {telemetryWindow?.rangeSec ? `${telemetryWindow.rangeSec}s / ${telemetryWindow.stepSec}s` : 'Awaiting snapshot'}
+                </strong>
+              </article>
+            </div>
+          </section>
+
+          <section className="panel">
+            <header className="panel__header">
+              <div>
+                <p className="eyebrow">Gate readout</p>
+                <h2>Every controller decision, with threshold context.</h2>
+              </div>
+            </header>
+            <div className="gate-grid gate-grid--detail">
+              {gateResults.length === 0 ? (
+                <p className="muted">No gate evaluations have been published for this rollout yet.</p>
+              ) : (
+                gateResults.map((gate) => (
+                  <article key={gate.name} className="gate-chip gate-chip--detail">
+                    <div className="gate-chip__topline">
+                      <StatusPill label={gate.name} tone={gate.passed ? 'good' : gate.signalStatus === 'no_data' ? 'warn' : 'critical'} />
+                      <strong>
+                        {typeof gate.value === 'number'
+                          ? `${gate.value.toFixed(gate.unit === 'ms' ? 0 : 2)}${gate.unit ? ` ${gate.unit}` : ''}`
+                          : gate.signalStatus}
+                      </strong>
+                    </div>
+                    <span>{gate.reason}</span>
+                    <code>{gate.query || 'No query recorded'}</code>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="panel">
+            <header className="panel__header">
+              <div>
+                <p className="eyebrow">Audit history</p>
+                <h2>What Sentra did, when, and why.</h2>
+              </div>
+            </header>
+            <div className="timeline">
+              {rollout.auditEvents.length === 0 ? (
+                <p className="muted">No audit events recorded yet.</p>
+              ) : (
+                rollout.auditEvents.map((event) => (
+                  <article key={event.id} className="timeline__item">
+                    <StatusPill label={event.eventType} tone={toneForDecision(event.details?.decision as string | null)} />
+                    <div>
+                      <strong>{event.summary}</strong>
+                      <span>{event.occurredAt ? new Date(event.occurredAt).toLocaleString() : 'Unknown time'}</span>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+
+        <aside className="detail-side">
+          <LiveEventStream deploymentId={rollout.id} />
+
+          <section className="panel">
+            <header className="panel__header">
+              <div>
+                <p className="eyebrow">Incidents</p>
+                <h2>Rollback reasons and blocked telemetry.</h2>
+              </div>
+            </header>
+            <div className="incident-list">
+              {rollout.incidents.length === 0 ? (
+                <p className="muted">No open incidents for this rollout.</p>
+              ) : (
+                rollout.incidents.map((incident) => (
+                  <article key={incident.id} className="incident-card">
+                    <StatusPill label={incident.severity} tone={incident.severity === 'critical' ? 'critical' : 'warn'} />
+                    <strong>{incident.summary}</strong>
+                    <span>{incident.incidentType}</span>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="panel">
+            <header className="panel__header">
+              <div>
+                <p className="eyebrow">Current action</p>
+                <h2>{rollout.liveState?.action?.summary || 'No live action recorded'}</h2>
+              </div>
+            </header>
+            <div className="key-value">
+              <div>
+                <span>Adapter</span>
+                <strong>{rollout.liveState?.action?.adapter || 'n/a'}</strong>
+              </div>
+              <div>
+                <span>Mode</span>
+                <strong>{rollout.liveState?.action?.mode || 'n/a'}</strong>
+              </div>
+              <div>
+                <span>Traffic shift</span>
+                <strong>
+                  {rollout.liveState?.action
+                    ? `${rollout.liveState.action.fromWeight}% -> ${rollout.liveState.action.toWeight}%`
+                    : 'n/a'}
+                </strong>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  )
+}

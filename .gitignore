@@ -1,0 +1,26 @@
+# Node
+node_modules/
+dist/
+*.log
+
+# Typescript
+*.tsbuildinfo
+
+# Go
+bin/
+*.exe
+*.test
+
+# Env
+.env
+
+# OS / editor
+.DS_Store
+**/.DS_Store
+**/.idea
+**/.vscode
+**/.venv
+
+# Coverage
+coverage/
+
