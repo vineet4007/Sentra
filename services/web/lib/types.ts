@@ -36,6 +36,71 @@ export type ProjectDetails = {
   environments: Environment[]
 }
 
+export type Satellite = {
+  id: number
+  tenantKey: string
+  name: string
+  mode: string
+  cloud: string | null
+  region: string | null
+  clusterName: string | null
+  endpointUrl: string | null
+  version: string | null
+  status: string
+  healthStatus: string
+  heartbeatIntervalSec: number
+  heartbeatAgeSec: number | null
+  staleAfterSec: number
+  stale: boolean
+  capabilities: Record<string, unknown> | null
+  labels: Record<string, unknown> | null
+  summary: Record<string, unknown> | null
+  lastSeenAt: string | null
+  registeredAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type SatelliteTask = {
+  id: number
+  tenantKey: string
+  satelliteId: number
+  satelliteName: string
+  deploymentId: number | null
+  taskType: string
+  status: string
+  payload: Record<string, unknown> | null
+  result: Record<string, unknown> | null
+  errorMessage: string | null
+  createdBy: string | null
+  leaseOwner: string | null
+  leaseExpiresAt: string | null
+  attempts: number
+  claimedAt: string | null
+  completedAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type AiAdvisorSignal = {
+  label: string
+  tone: 'neutral' | 'good' | 'warn' | 'critical' | 'accent'
+  value: string
+}
+
+export type AiAdvisor = {
+  mode: 'shadow'
+  engine: string
+  recommendation: 'continue' | 'pause' | 'rollback' | 'investigate' | 'collect_more_data'
+  severity: 'low' | 'elevated' | 'high' | 'critical'
+  confidencePct: number
+  riskScore: number
+  headline: string
+  summary: string
+  rationales: string[]
+  signals: AiAdvisorSignal[]
+}
+
 export type RolloutStep = {
   id: number
   deploymentId: number
@@ -185,6 +250,8 @@ export type Rollout = {
   steps: RolloutStep[]
   incidents: Incident[]
   auditEvents: AuditEvent[]
+  satelliteTasks: SatelliteTask[]
+  aiAdvisor: AiAdvisor
 }
 
 export type RolloutEvent = {

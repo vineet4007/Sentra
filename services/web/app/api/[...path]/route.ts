@@ -4,6 +4,8 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 const sentraApiBaseUrl = process.env.SENTRA_API_URL || 'http://localhost:8080'
+const sentraApiBearerToken = process.env.SENTRA_API_BEARER_TOKEN || ''
+const sentraTenant = process.env.SENTRA_DEFAULT_TENANT || ''
 
 async function forward(request: NextRequest, pathParts: string[]) {
   const target = new URL(`/${pathParts.join('/')}`, sentraApiBaseUrl)
@@ -13,6 +15,12 @@ async function forward(request: NextRequest, pathParts: string[]) {
   headers.delete('host')
   headers.delete('connection')
   headers.delete('content-length')
+  if (!headers.has('authorization') && sentraApiBearerToken.trim() !== '') {
+    headers.set('authorization', `Bearer ${sentraApiBearerToken.trim()}`)
+  }
+  if (!headers.has('x-sentra-tenant') && sentraTenant.trim() !== '') {
+    headers.set('x-sentra-tenant', sentraTenant.trim())
+  }
 
   const init: RequestInit = {
     method: request.method,

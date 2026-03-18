@@ -4,6 +4,7 @@ import { fromDbJson, queryRows, toDbJson, toIsoString, withTransaction, type Sql
 import {
   ApiError,
   asyncHandler,
+  getOptionalArray,
   getOptionalBoolean,
   getOptionalPositiveInt,
   getRequiredPositiveInt,
@@ -12,8 +13,8 @@ import {
   parseOptionalPositiveIntQuery,
   requireBodyObject,
   requireObjectField,
-  getOptionalArray,
 } from '../http.js'
+import { assertServiceEnvironmentTenantAccess, getRequestTenantKey } from '../security.js'
 
 const r = Router()
 
@@ -69,37 +70,44 @@ r.get(
   asyncHandler(async (req, res) => {
     const serviceId = parseOptionalPositiveIntQuery(req.query.serviceId, 'serviceId')
     const environmentId = parseOptionalPositiveIntQuery(req.query.environmentId, 'environmentId')
+    const tenantKey = getRequestTenantKey(req)
 
     const where: string[] = []
     const params: SqlParam[] = []
 
     if (serviceId) {
-      where.push('service_id = ?')
+      where.push('pol.service_id = ?')
       params.push(serviceId)
     }
     if (environmentId) {
-      where.push('environment_id = ?')
+      where.push('pol.environment_id = ?')
       params.push(environmentId)
+    }
+    if (tenantKey) {
+      where.push('p.tenant_key = ?')
+      params.push(tenantKey)
     }
 
     const rows = await queryRows<PolicyRow[]>(
       `SELECT
-         id,
-         service_id AS serviceId,
-         environment_id AS environmentId,
-         slo_config AS sloConfig,
-         rollout_steps AS rolloutSteps,
-         evaluation_window_sec AS evaluationWindowSec,
-         poll_interval_sec AS pollIntervalSec,
-         warmup_sec AS warmupSec,
-         required_passes AS requiredPasses,
-         failure_mode AS failureMode,
-         enabled,
-         created_at AS createdAt,
-         updated_at AS updatedAt
-       FROM policies
+         pol.id,
+         pol.service_id AS serviceId,
+         pol.environment_id AS environmentId,
+         pol.slo_config AS sloConfig,
+         pol.rollout_steps AS rolloutSteps,
+         pol.evaluation_window_sec AS evaluationWindowSec,
+         pol.poll_interval_sec AS pollIntervalSec,
+         pol.warmup_sec AS warmupSec,
+         pol.required_passes AS requiredPasses,
+         pol.failure_mode AS failureMode,
+         pol.enabled,
+         pol.created_at AS createdAt,
+         pol.updated_at AS updatedAt
+       FROM policies pol
+       INNER JOIN services s ON s.id = pol.service_id
+       INNER JOIN projects p ON p.id = s.project_id
        ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
-       ORDER BY updated_at DESC`,
+       ORDER BY pol.updated_at DESC`,
       params,
     )
 
@@ -128,8 +136,11 @@ r.post(
       'failureMode',
     )
     const enabled = getOptionalBoolean(body, 'enabled')
+    const tenantKey = getRequestTenantKey(req)
 
     const saved = await withTransaction(async (connection) => {
+      await assertServiceEnvironmentTenantAccess(connection, serviceId, environmentId, tenantKey)
+
       const [existingRows] = await connection.query<RowDataPacket[]>(
         `SELECT id FROM policies WHERE service_id = ? AND environment_id = ?`,
         [serviceId, environmentId],

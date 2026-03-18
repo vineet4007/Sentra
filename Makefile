@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs build fmt lint ci db-migrate smoke integration verify
+.PHONY: up down logs build fmt lint ci db-migrate smoke integration federation verify package ai-test
 
 up:
 	docker compose up -d --build
@@ -15,6 +15,9 @@ build:
 	cd services/controller && go build -o ../../bin/controller
 	cd services/api && npm ci && npm run build
 	cd services/web && npm ci && npm run build
+
+ai-test:
+	docker compose run --rm --no-deps ai python -m unittest discover -s tests
 
 fmt:
 	cd services/controller && go fmt ./...
@@ -32,4 +35,10 @@ smoke:
 integration:
 	node scripts/verify-rollout-flow.mjs
 
-verify: smoke integration
+federation:
+	bash scripts/verify-federation-flow.sh
+
+verify: smoke integration federation
+
+package:
+	bash scripts/package-selfhosted.sh

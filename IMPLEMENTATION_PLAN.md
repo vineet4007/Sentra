@@ -362,20 +362,56 @@ Validation notes:
 
 ### Step 10: Expand to the broader platform vision
 
-Status: Pending
+Status: In progress
 
-- [ ] Add more runtime adapters for AWS, Azure, and GCP services
-- [ ] Support federated satellite deployments
-- [ ] Add auth, tenancy, and stronger security controls
+- [x] Extend the Kubernetes adapter from simulation-only mode to guarded `kubectl` direct apply mode
+- [x] Add more runtime adapters for AWS, Azure, and GCP services
+- [x] Support federated satellite deployments
+- [x] Add auth, tenancy, and stronger security controls
 - [ ] Add ML-assisted anomaly detection and predictive rollback features
-- [ ] Package the product for easier distribution
+- [x] Package the product for easier distribution
 
 Exit criteria:
 - Sentra moves from a single working control loop into the full multi-cloud platform described in the architecture docs.
 
+Validation notes:
+- [x] Added controller-level safety gates for direct Kubernetes apply: `KUBERNETES_APPLY_ENABLED`, `KUBERNETES_ALLOW_MUTATIONS`, and allowlists for contexts and clusters
+- [x] Added per-environment target opt-in through `deployment_target_config.allowDirectApply`
+- [x] Kept `simulation` as the default safe mode for local work
+- [x] Added adapter tests for simulation, guarded `kubectl` dry-run command construction, and blocked mutation paths
+- [x] Added Cloud Run as the first cloud-managed adapter with local `simulation` mode and guarded `gcloud` apply mode
+- [x] Added Cloud Run controller safety gates for project and region allowlists plus explicit mutation enablement
+- [x] Added adapter tests for Cloud Run simulation, guarded `gcloud` command construction, and missing stable revision failures
+- [x] Added AWS Lambda as the next cloud-managed adapter with local `simulation` mode and guarded `aws` CLI alias update mode
+- [x] Added Lambda controller safety gates for region and function allowlists plus explicit mutation enablement
+- [x] Added adapter tests for Lambda simulation, guarded `aws lambda update-alias` command construction, and missing stable version failures
+- [x] Added Azure Container Apps as the next cloud-managed adapter with local `simulation` mode and guarded `az` CLI traffic update mode
+- [x] Added Azure Container Apps controller safety gates for subscription and resource group allowlists plus explicit mutation enablement
+- [x] Added adapter tests for Azure Container Apps simulation, guarded `az containerapp ingress traffic set` command construction, and missing stable revision failures
+- [x] Added the first federated-satellite coordinator slice with a MySQL `satellites` registry and tenant-scoped API heartbeat endpoints
+- [x] Added controller-side satellite heartbeat support so a regional controller can publish local identity, capabilities, and telemetry freshness to the coordinator
+- [x] Added controller tests for satellite heartbeat payloads, auth headers, tenant headers, and coordinator error handling
+- [x] Added a MySQL `satellite_tasks` queue plus coordinator API routes for task queueing, claiming, listing, and completion reporting
+- [x] Added controller-side satellite task polling so a regional controller can claim delegated reconcile work from the coordinator and report results back
+- [x] Verified federated delegation end to end by queueing `reconcile.deployment` tasks through the coordinator and watching a satellite controller initialize then promote a rollout locally
+- [x] Added rollout-linked satellite task history to the API and UI so operators can see which satellite executed delegated work
+- [x] Added a satellite detail screen plus rollout-side delegated reconcile action from the UI
+- [x] Added optional bearer auth for API and controller surfaces through environment configuration
+- [x] Added tenant-aware project scoping with `tenant_key` persistence and request-level tenant filtering
+- [x] Added response redaction for stored secret refs and sensitive integration config keys
+- [x] Added validation that rejects inline secret material in persisted integration config and expects secret references instead
+- [x] Verified tenant-filtered project reads return only tenant-owned records
+- [x] Verified onboarding rejects inline secret-like fields with HTTP `400`
+- [x] Added a self-hosted packaging script that produces a distributable Docker Compose archive under `dist/`
+- [x] Added a packaged runtime overlay with restart policies and log rotation defaults
+- [x] Added production-oriented bundle env and install docs under `deploy/selfhosted/`
+- [x] Verified the packaging script produces a self-hosted archive that includes the install docs, runtime overlay, and core service sources
+- [x] Added an initial advisory-only AI shadow layer (`heuristic-v1`) that computes rollout risk, confidence, and recommendation hints from gates, incidents, audit history, and satellite task outcomes
+- [x] Verified integration and federation flows still pass with AI advisory output included in rollout responses
+
 ## Recommended Current Focus
 
-Work on Step 10 next.
+Continue Step 10 with broader multi-cloud coverage, federated topology, and packaging.
 
 Why this is next:
 
@@ -433,9 +469,9 @@ AI should be part of Sentra, but not part of the first production-critical rollo
 
 Move into Step 10 by expanding the current local control loop in this order:
 
-1. Extend the Kubernetes adapter from simulation mode to direct cluster apply mode with explicit safety gates.
-2. Add the next runtime adapter after Kubernetes, preferably one cloud-managed target such as Lambda aliases or Cloud Run revisions.
-3. Add stronger auth, tenancy, and secret-handling controls before broadening the deployment surface further.
+1. [x] Extend the Kubernetes adapter from simulation mode to direct cluster apply mode with explicit safety gates.
+2. [x] Add the next runtime adapter after Kubernetes, preferably one cloud-managed target such as Lambda aliases or Cloud Run revisions.
+3. [x] Add stronger auth, tenancy, and secret-handling controls before broadening the deployment surface further.
 
 ## First User Onboarding Story We Should Target
 

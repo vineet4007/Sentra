@@ -10,12 +10,53 @@ type LiveEventStreamProps = {
 }
 
 function toneForEvent(event?: RolloutEvent | null): 'neutral' | 'good' | 'warn' | 'critical' | 'accent' {
+  const type = String(event?.type || '').toLowerCase()
   const decision = String(event?.decision || event?.liveState?.decision || '').toLowerCase()
+  if (type.includes('satellite.task.completed')) return 'good'
+  if (type.includes('satellite.task.failed')) return 'critical'
+  if (type.includes('satellite.task.claimed') || type.includes('satellite.task.queued')) return 'accent'
   if (decision === 'promote' || decision === 'initialize') return 'good'
   if (decision === 'rollback') return 'critical'
   if (decision === 'pause') return 'warn'
   if (decision === 'hold') return 'accent'
   return 'neutral'
+}
+
+function describeEvent(event: RolloutEvent) {
+  if (event.summary) {
+    return event.summary
+  }
+
+  const satelliteName = typeof event.satelliteName === 'string' ? event.satelliteName : 'satellite'
+  const taskId = typeof event.taskId === 'number' ? `task ${event.taskId}` : 'task'
+
+  switch (event.type) {
+    case 'satellite.task.queued':
+      return `${satelliteName} received ${taskId} from the coordinator.`
+    case 'satellite.task.claimed':
+      return `${satelliteName} claimed ${taskId} for execution.`
+    case 'satellite.task.completed':
+      return `${satelliteName} completed ${taskId}.`
+    case 'satellite.task.failed':
+      return `${satelliteName} failed ${taskId}.`
+    default:
+      return event.type
+  }
+}
+
+function labelForEvent(event: RolloutEvent) {
+  switch (event.type) {
+    case 'satellite.task.queued':
+      return 'task queued'
+    case 'satellite.task.claimed':
+      return 'task claimed'
+    case 'satellite.task.completed':
+      return 'task completed'
+    case 'satellite.task.failed':
+      return 'task failed'
+    default:
+      return String(event.decision || event.type)
+  }
 }
 
 export function LiveEventStream({ deploymentId }: LiveEventStreamProps) {
@@ -120,9 +161,9 @@ export function LiveEventStream({ deploymentId }: LiveEventStreamProps) {
         ) : (
           events.map((event) => (
             <article key={`${event.type}-${event.timestamp}`} className="event-row">
-              <StatusPill label={String(event.decision || event.type)} tone={toneForEvent(event)} />
+              <StatusPill label={labelForEvent(event)} tone={toneForEvent(event)} />
               <div className="event-row__body">
-                <strong>{event.summary || event.type}</strong>
+                <strong>{describeEvent(event)}</strong>
                 <span>{new Date(event.timestamp).toLocaleString()}</span>
               </div>
             </article>

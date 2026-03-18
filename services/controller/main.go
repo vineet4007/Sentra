@@ -39,6 +39,8 @@ func main() {
 
 	decisionEngine := newDecisionEngine(telemetry, stateStore)
 	reconciler := newRolloutReconciler(config, store, stateStore, decisionEngine)
+	satellite := newSatelliteCoordinator(config, telemetry)
+	satelliteTasks := newSatelliteTaskWorker(config, reconciler)
 	prometheus.MustRegister(
 		ready,
 		telemetrySourceUp,
@@ -47,17 +49,27 @@ func main() {
 		rolloutEvaluationsTotal,
 		rolloutDecisionsTotal,
 		rolloutGateFailuresTotal,
+		satelliteHeartbeatsTotal,
+		satelliteLastSuccess,
+		satelliteTasksTotal,
+		satelliteTaskLastSuccess,
 	)
 	ready.Set(1)
 
 	go telemetry.startBackgroundValidation(context.Background())
+	if satellite != nil {
+		go satellite.start(context.Background())
+	}
+	if satelliteTasks != nil {
+		go satelliteTasks.start(context.Background())
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", health)
-	mux.HandleFunc("/telemetry/validate", telemetry.handleValidate)
-	mux.HandleFunc("/telemetry/snapshot", telemetry.handleSnapshot)
-	mux.HandleFunc("/rollouts/evaluate", decisionEngine.handleEvaluate)
-	mux.HandleFunc("/rollouts/reconcile", reconciler.handleReconcile)
+	mux.HandleFunc("/telemetry/validate", withBearerAuth(config.ControllerBearerToken, telemetry.handleValidate))
+	mux.HandleFunc("/telemetry/snapshot", withBearerAuth(config.ControllerBearerToken, telemetry.handleSnapshot))
+	mux.HandleFunc("/rollouts/evaluate", withBearerAuth(config.ControllerBearerToken, decisionEngine.handleEvaluate))
+	mux.HandleFunc("/rollouts/reconcile", withBearerAuth(config.ControllerBearerToken, reconciler.handleReconcile))
 	mux.Handle("/metrics", promhttp.Handler())
 
 	log.Printf("controller up on %s", config.HTTPPort)

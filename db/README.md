@@ -20,6 +20,8 @@ This folder holds the control-plane schema for Sentra.
 | `rollout_steps` | Controller | API, Controller | Controller records each step evaluation and decision. |
 | `incidents` | Controller | API, Controller | Controller records regressions, pauses, and rollback triggers. |
 | `audit_events` | API and Controller | API, Controller | API writes user-initiated audit events; controller writes system decisions and actions. |
+| `satellites` | API | API, Controller | Global coordinator registry for federated satellite heartbeats, capabilities, and freshness. |
+| `satellite_tasks` | API queues, Controller completes | API, Controller | Coordinator-owned delegated execution queue for federated satellite reconcile work and reported results. |
 | `schema_migrations` | Migration runner | API, Controller | Tracks which schema files have been applied. |
 
 ## Local Workflow
@@ -27,4 +29,3 @@ This folder holds the control-plane schema for Sentra.
 - Fresh local start: `cp .env.example .env` then `make up`
 - Existing MySQL volume: `make db-migrate`
 - Quick validation: `docker compose exec -T mysql mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SHOW TABLES;"`
-

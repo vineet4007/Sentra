@@ -1,8 +1,8 @@
 import { DashboardShell } from '@/components/dashboard-shell'
-import { getProjects, getRollouts } from '@/lib/api'
+import { getProjects, getRollouts, getSatellites } from '@/lib/api'
 
 export default async function HomePage() {
-  const [projects, rollouts] = await Promise.all([getProjects(), getRollouts(12)])
+  const [projects, rollouts, satellites] = await Promise.all([getProjects(), getRollouts(12), getSatellites()])
 
-  return <DashboardShell projects={projects} rollouts={rollouts} />
+  return <DashboardShell projects={projects} rollouts={rollouts} satellites={satellites} />
 }

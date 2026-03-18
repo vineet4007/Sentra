@@ -260,6 +260,12 @@ async function verifyHealthyPromotion(serviceId, environmentId, policyId) {
   const rollout = await fetchRollout(deployment.id)
   assert(rollout.status === 'running', 'Expected promoted rollout to stay running')
   assert(rollout.currentWeight === 25, 'Expected rollout current weight to be 25 after promotion')
+  assert(rollout.aiAdvisor?.mode === 'shadow', 'Expected rollout to include AI shadow advisor')
+  assert(
+    rollout.aiAdvisor?.engine === 'fastapi-shadow-v1',
+    `Expected external AI service engine, got ${rollout.aiAdvisor?.engine}`,
+  )
+  assert(typeof rollout.aiAdvisor?.riskScore === 'number', 'Expected AI advisor risk score to be numeric')
   assert(
     rollout.steps.some((step) => step.stepIndex === 0 && step.status === 'completed'),
     'Expected first rollout step to be completed after promotion',

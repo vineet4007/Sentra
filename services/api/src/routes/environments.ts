@@ -1,7 +1,24 @@
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2/promise'
 import { fromDbJson, executeStatement, queryRows, toDbJson, toIsoString, type SqlParam } from '../db.js'
-import { asyncHandler, getOptionalBoolean, getOptionalJson, ok, parseOptionalPositiveIntQuery, parsePositiveInt, requireBodyObject, hasField, ApiError } from '../http.js'
+import {
+  ApiError,
+  asyncHandler,
+  getOptionalBoolean,
+  getOptionalJson,
+  hasField,
+  ok,
+  parseOptionalPositiveIntQuery,
+  parsePositiveInt,
+  requireBodyObject,
+} from '../http.js'
+import {
+  assertEnvironmentTenantAccess,
+  assertNoSensitiveKeys,
+  getRequestTenantKey,
+  redactSecretRefs,
+  redactStoredConfig,
+} from '../security.js'
 import { validateTelemetryConfig } from '../telemetry.js'
 
 const r = Router()
@@ -25,10 +42,14 @@ function mapEnvironmentRow(row: EnvironmentRow) {
     projectId: row.projectId,
     name: row.name,
     deploymentTargetType: row.deploymentTargetType,
-    deploymentTargetConfig: fromDbJson<Record<string, unknown>>(row.deploymentTargetConfig),
-    telemetrySourceConfig: fromDbJson<Record<string, unknown>>(row.telemetrySourceConfig),
+    deploymentTargetConfig: redactStoredConfig(
+      fromDbJson<Record<string, unknown>>(row.deploymentTargetConfig),
+    ),
+    telemetrySourceConfig: redactStoredConfig(
+      fromDbJson<Record<string, unknown>>(row.telemetrySourceConfig),
+    ),
     telemetryLabelMap: fromDbJson<Record<string, unknown>>(row.telemetryLabelMap),
-    secretRefs: fromDbJson<unknown>(row.secretRefs),
+    secretRefs: redactSecretRefs(fromDbJson<unknown>(row.secretRefs)),
     createdAt: toIsoString(row.createdAt),
     updatedAt: toIsoString(row.updatedAt),
   }
@@ -39,32 +60,38 @@ r.get(
   asyncHandler(async (req, res) => {
     const projectId = parseOptionalPositiveIntQuery(req.query.projectId, 'projectId')
     const limit = parseOptionalPositiveIntQuery(req.query.limit, 'limit') || 50
+    const tenantKey = getRequestTenantKey(req)
 
     const params: SqlParam[] = []
-    let where = ''
+    const where: string[] = []
 
     if (projectId) {
-      where = 'WHERE project_id = ?'
+      where.push('e.project_id = ?')
       params.push(projectId)
+    }
+    if (tenantKey) {
+      where.push('p.tenant_key = ?')
+      params.push(tenantKey)
     }
 
     params.push(limit)
 
     const rows = await queryRows<EnvironmentRow[]>(
       `SELECT
-         id,
-         project_id AS projectId,
-         name,
-         deployment_target_type AS deploymentTargetType,
-         deployment_target_config AS deploymentTargetConfig,
-         telemetry_source_config AS telemetrySourceConfig,
-         telemetry_label_map AS telemetryLabelMap,
-         secret_refs AS secretRefs,
-         created_at AS createdAt,
-         updated_at AS updatedAt
-       FROM environments
-       ${where}
-       ORDER BY created_at DESC
+         e.id,
+         e.project_id AS projectId,
+         e.name,
+         e.deployment_target_type AS deploymentTargetType,
+         e.deployment_target_config AS deploymentTargetConfig,
+         e.telemetry_source_config AS telemetrySourceConfig,
+         e.telemetry_label_map AS telemetryLabelMap,
+         e.secret_refs AS secretRefs,
+         e.created_at AS createdAt,
+         e.updated_at AS updatedAt
+       FROM environments e
+       INNER JOIN projects p ON p.id = e.project_id
+       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY e.created_at DESC
        LIMIT ?`,
       params,
     )
@@ -82,6 +109,9 @@ r.put(
     const environmentId = parsePositiveInt(req.params.id, 'environmentId')
     const body = requireBodyObject(req.body)
     const validateTelemetry = getOptionalBoolean(body, 'validateTelemetry') || false
+    const tenantKey = getRequestTenantKey(req)
+
+    await assertEnvironmentTenantAccess(environmentId, tenantKey)
 
     const updates: string[] = []
     const params: SqlParam[] = []
@@ -100,6 +130,7 @@ r.put(
 
     if (hasField(body, 'deploymentTargetConfig')) {
       const deploymentTargetConfig = getOptionalJson(body, 'deploymentTargetConfig')
+      assertNoSensitiveKeys(deploymentTargetConfig, 'deploymentTargetConfig')
       updates.push('deployment_target_config = ?')
       params.push(toDbJson(deploymentTargetConfig))
     }
@@ -109,6 +140,7 @@ r.put(
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         telemetrySourceConfig = value as Record<string, unknown>
       }
+      assertNoSensitiveKeys(value, 'telemetrySourceConfig')
       updates.push('telemetry_source_config = ?')
       params.push(toDbJson(value))
     }
@@ -150,19 +182,20 @@ r.put(
 
     const rows = await queryRows<EnvironmentRow[]>(
       `SELECT
-         id,
-         project_id AS projectId,
-         name,
-         deployment_target_type AS deploymentTargetType,
-         deployment_target_config AS deploymentTargetConfig,
-         telemetry_source_config AS telemetrySourceConfig,
-         telemetry_label_map AS telemetryLabelMap,
-         secret_refs AS secretRefs,
-         created_at AS createdAt,
-         updated_at AS updatedAt
-       FROM environments
-       WHERE id = ?`,
-      [environmentId],
+         e.id,
+         e.project_id AS projectId,
+         e.name,
+         e.deployment_target_type AS deploymentTargetType,
+         e.deployment_target_config AS deploymentTargetConfig,
+         e.telemetry_source_config AS telemetrySourceConfig,
+         e.telemetry_label_map AS telemetryLabelMap,
+         e.secret_refs AS secretRefs,
+         e.created_at AS createdAt,
+         e.updated_at AS updatedAt
+       FROM environments e
+       INNER JOIN projects p ON p.id = e.project_id
+       WHERE e.id = ?${tenantKey ? ' AND p.tenant_key = ?' : ''}`,
+      tenantKey ? [environmentId, tenantKey] : [environmentId],
     )
 
     if (rows.length === 0) {

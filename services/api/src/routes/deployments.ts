@@ -14,6 +14,12 @@ import {
   parseOptionalPositiveIntQuery,
   requireBodyObject,
 } from '../http.js'
+import {
+  assertNoSensitiveKeys,
+  assertServiceEnvironmentTenantAccess,
+  getRequestTenantKey,
+  redactStoredConfig,
+} from '../security.js'
 
 const r = Router()
 
@@ -53,7 +59,9 @@ function mapDeploymentRow(row: DeploymentRow) {
     status: row.status,
     initiatedBy: row.initiatedBy,
     source: row.source,
-    deploymentMetadata: fromDbJson<Record<string, unknown>>(row.deploymentMetadata),
+    deploymentMetadata: redactStoredConfig(
+      fromDbJson<Record<string, unknown>>(row.deploymentMetadata),
+    ),
     currentWeight: row.currentWeight,
     lastDecision: row.lastDecision,
     lastDecisionReason: row.lastDecisionReason,
@@ -74,47 +82,54 @@ r.get(
       typeof req.query.status === 'string' && req.query.status.trim() !== ''
         ? req.query.status.trim()
         : null
+    const tenantKey = getRequestTenantKey(req)
 
     const where: string[] = []
     const params: SqlParam[] = []
 
     if (serviceId) {
-      where.push('service_id = ?')
+      where.push('d.service_id = ?')
       params.push(serviceId)
     }
     if (environmentId) {
-      where.push('environment_id = ?')
+      where.push('d.environment_id = ?')
       params.push(environmentId)
     }
     if (status) {
-      where.push('status = ?')
+      where.push('d.status = ?')
       params.push(status)
+    }
+    if (tenantKey) {
+      where.push('p.tenant_key = ?')
+      params.push(tenantKey)
     }
 
     params.push(limit)
 
     const rows = await queryRows<DeploymentRow[]>(
       `SELECT
-         id,
-         service_id AS serviceId,
-         environment_id AS environmentId,
-         policy_id AS policyId,
-         image_ref AS imageRef,
-         revision,
-         status,
-         initiated_by AS initiatedBy,
-         source,
-         deployment_metadata AS deploymentMetadata,
-         current_weight AS currentWeight,
-         last_decision AS lastDecision,
-         last_decision_reason AS lastDecisionReason,
-         started_at AS startedAt,
-         completed_at AS completedAt,
-         created_at AS createdAt,
-         updated_at AS updatedAt
-       FROM deployments
+         d.id,
+         d.service_id AS serviceId,
+         d.environment_id AS environmentId,
+         d.policy_id AS policyId,
+         d.image_ref AS imageRef,
+         d.revision,
+         d.status,
+         d.initiated_by AS initiatedBy,
+         d.source,
+         d.deployment_metadata AS deploymentMetadata,
+         d.current_weight AS currentWeight,
+         d.last_decision AS lastDecision,
+         d.last_decision_reason AS lastDecisionReason,
+         d.started_at AS startedAt,
+         d.completed_at AS completedAt,
+         d.created_at AS createdAt,
+         d.updated_at AS updatedAt
+       FROM deployments d
+       INNER JOIN services s ON s.id = d.service_id
+       INNER JOIN projects p ON p.id = s.project_id
        ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
-       ORDER BY created_at DESC
+       ORDER BY d.created_at DESC
        LIMIT ?`,
       params,
     )
@@ -138,31 +153,50 @@ r.post(
     const source = getOptionalString(body, 'source') || 'manual'
     const policyIdInput = getOptionalPositiveInt(body, 'policyId')
     const deploymentMetadata = getOptionalJson(body, 'deploymentMetadata')
+    const tenantKey = getRequestTenantKey(req)
+
+    assertNoSensitiveKeys(deploymentMetadata, 'deploymentMetadata')
 
     const created = await withTransaction(async (connection) => {
+      await assertServiceEnvironmentTenantAccess(connection, serviceId, environmentId, tenantKey)
+
       let resolvedPolicyId = policyIdInput
       let rolloutSteps: number[] = []
 
       if (resolvedPolicyId) {
         const [policyRows] = await connection.query<PolicySeedRow[]>(
-          `SELECT id, rollout_steps AS rolloutSteps
-           FROM policies
-           WHERE id = ?`,
-          [resolvedPolicyId],
+          `SELECT pol.id, pol.rollout_steps AS rolloutSteps
+           FROM policies pol
+           INNER JOIN services s ON s.id = pol.service_id
+           INNER JOIN projects p ON p.id = s.project_id
+           WHERE pol.id = ?
+             AND pol.service_id = ?
+             AND pol.environment_id = ?
+             ${tenantKey ? 'AND p.tenant_key = ?' : ''}
+           LIMIT 1`,
+          tenantKey
+            ? [resolvedPolicyId, serviceId, environmentId, tenantKey]
+            : [resolvedPolicyId, serviceId, environmentId],
         )
 
         if (policyRows.length === 0) {
-          throw new ApiError(400, 'The provided policyId does not exist')
+          throw new ApiError(
+            400,
+            'The provided policyId does not exist for this tenant-scoped service and environment',
+          )
         }
 
         rolloutSteps = fromDbJson<number[]>(policyRows[0].rolloutSteps) || []
       } else {
         const [policyRows] = await connection.query<PolicySeedRow[]>(
-          `SELECT id, rollout_steps AS rolloutSteps
-           FROM policies
-           WHERE service_id = ? AND environment_id = ?
+          `SELECT pol.id, pol.rollout_steps AS rolloutSteps
+           FROM policies pol
+           INNER JOIN services s ON s.id = pol.service_id
+           INNER JOIN projects p ON p.id = s.project_id
+           WHERE pol.service_id = ? AND pol.environment_id = ?
+             ${tenantKey ? 'AND p.tenant_key = ?' : ''}
            LIMIT 1`,
-          [serviceId, environmentId],
+          tenantKey ? [serviceId, environmentId, tenantKey] : [serviceId, environmentId],
         )
 
         if (policyRows.length > 0) {

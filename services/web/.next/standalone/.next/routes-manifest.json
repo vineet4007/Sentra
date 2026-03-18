@@ -36,6 +36,14 @@
         "nxtPid": "nxtPid"
       },
       "namedRegex": "^/rollouts/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/satellites/[id]",
+      "regex": "^/satellites/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/satellites/(?<nxtPid>[^/]+?)(?:/)?$"
     }
   ],
   "staticRoutes": [

@@ -129,7 +129,7 @@ func (r *rolloutReconciler) reconcile(
 		return reconcileResponse{}, err
 	}
 
-	adapter, target, err := newDeploymentAdapter(execution)
+	adapter, target, err := newDeploymentAdapter(r.config, execution)
 	if err != nil {
 		return reconcileResponse{}, err
 	}

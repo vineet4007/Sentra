@@ -43,19 +43,25 @@ export async function publishRolloutEvent(
 }
 
 export async function createRolloutEventSubscriber(
-  onEvent: (event: RolloutEvent) => void,
+  onEvent: (event: RolloutEvent) => void | Promise<void>,
 ): Promise<() => Promise<void>> {
   const url = process.env.REDIS_URL || 'redis://localhost:6379'
   const subscriber = new Redis(url)
 
   const handleMessage = (_channel: string, message: string) => {
     try {
-      onEvent(JSON.parse(message) as RolloutEvent)
+      void Promise.resolve(onEvent(JSON.parse(message) as RolloutEvent)).catch((error) => {
+        console.error('[api] rollout event handler failed:', error)
+      })
     } catch {
-      onEvent({
-        type: 'event.parse_error',
-        timestamp: new Date().toISOString(),
-        raw: message,
+      void Promise.resolve(
+        onEvent({
+          type: 'event.parse_error',
+          timestamp: new Date().toISOString(),
+          raw: message,
+        }),
+      ).catch((error) => {
+        console.error('[api] rollout event handler failed:', error)
       })
     }
   }

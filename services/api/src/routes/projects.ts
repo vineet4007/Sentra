@@ -13,12 +13,21 @@ import {
   requireBodyObject,
   requireObjectField,
 } from '../http.js'
+import {
+  assertNoSensitiveKeys,
+  assertProjectTenantAccess,
+  getRequestTenantKey,
+  getTenantKeyForWrite,
+  redactSecretRefs,
+  redactStoredConfig,
+} from '../security.js'
 import { validateTelemetryConfig } from '../telemetry.js'
 
 const r = Router()
 
 type ProjectRow = RowDataPacket & {
   id: number
+  tenantKey: string
   name: string
   repoUrl: string | null
   description: string | null
@@ -52,6 +61,7 @@ type EnvironmentRow = RowDataPacket & {
 function mapProjectRow(row: ProjectRow) {
   return {
     id: row.id,
+    tenantKey: row.tenantKey,
     name: row.name,
     repoUrl: row.repoUrl,
     description: row.description,
@@ -66,7 +76,7 @@ function mapServiceRow(row: ServiceRow) {
     projectId: row.projectId,
     name: row.name,
     adapterType: row.adapterType,
-    serviceConfig: fromDbJson<Record<string, unknown>>(row.serviceConfig),
+    serviceConfig: redactStoredConfig(fromDbJson<Record<string, unknown>>(row.serviceConfig)),
     createdAt: toIsoString(row.createdAt),
     updatedAt: toIsoString(row.updatedAt),
   }
@@ -78,10 +88,14 @@ function mapEnvironmentRow(row: EnvironmentRow) {
     projectId: row.projectId,
     name: row.name,
     deploymentTargetType: row.deploymentTargetType,
-    deploymentTargetConfig: fromDbJson<Record<string, unknown>>(row.deploymentTargetConfig),
-    telemetrySourceConfig: fromDbJson<Record<string, unknown>>(row.telemetrySourceConfig),
+    deploymentTargetConfig: redactStoredConfig(
+      fromDbJson<Record<string, unknown>>(row.deploymentTargetConfig),
+    ),
+    telemetrySourceConfig: redactStoredConfig(
+      fromDbJson<Record<string, unknown>>(row.telemetrySourceConfig),
+    ),
     telemetryLabelMap: fromDbJson<Record<string, unknown>>(row.telemetryLabelMap),
-    secretRefs: fromDbJson<unknown>(row.secretRefs),
+    secretRefs: redactSecretRefs(fromDbJson<unknown>(row.secretRefs)),
     createdAt: toIsoString(row.createdAt),
     updatedAt: toIsoString(row.updatedAt),
   }
@@ -89,17 +103,21 @@ function mapEnvironmentRow(row: EnvironmentRow) {
 
 r.get(
   '/',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const tenantKey = getRequestTenantKey(req)
     const rows = await queryRows<ProjectRow[]>(
       `SELECT
          id,
+         tenant_key AS tenantKey,
          name,
          repo_url AS repoUrl,
          description,
          created_at AS createdAt,
          updated_at AS updatedAt
        FROM projects
+       ${tenantKey ? 'WHERE tenant_key = ?' : ''}
        ORDER BY created_at DESC`,
+      tenantKey ? [tenantKey] : [],
     )
 
     ok(res, {
@@ -113,10 +131,14 @@ r.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const projectId = parsePositiveInt(req.params.id, 'projectId')
+    const tenantKey = getRequestTenantKey(req)
+
+    await assertProjectTenantAccess(projectId, tenantKey)
 
     const projectRows = await queryRows<ProjectRow[]>(
       `SELECT
          id,
+         tenant_key AS tenantKey,
          name,
          repo_url AS repoUrl,
          description,
@@ -179,17 +201,19 @@ r.post(
     const name = getRequiredString(body, 'name')
     const repoUrl = getOptionalString(body, 'repoUrl')
     const description = getOptionalString(body, 'description')
+    const tenantKey = getTenantKeyForWrite(req)
 
     const created = await withTransaction(async (connection) => {
       const [insertResult] = await connection.execute<ResultSetHeader>(
-        `INSERT INTO projects (name, repo_url, description)
-         VALUES (?, ?, ?)`,
-        [name, repoUrl, description],
+        `INSERT INTO projects (tenant_key, name, repo_url, description)
+         VALUES (?, ?, ?, ?)`,
+        [tenantKey, name, repoUrl, description],
       )
 
       const [rows] = await connection.query<ProjectRow[]>(
         `SELECT
            id,
+           tenant_key AS tenantKey,
            name,
            repo_url AS repoUrl,
            description,
@@ -219,6 +243,7 @@ r.post(
     const serviceInput = requireObjectField(body, 'service')
     const environmentInput = requireObjectField(body, 'environment')
     const validateTelemetry = getOptionalBoolean(body, 'validateTelemetry') || false
+    const tenantKey = getTenantKeyForWrite(req)
 
     const projectName = getRequiredString(projectInput, 'name')
     const repoUrl = getOptionalString(projectInput, 'repoUrl')
@@ -227,6 +252,7 @@ r.post(
     const serviceName = getRequiredString(serviceInput, 'name')
     const adapterType = getOptionalString(serviceInput, 'adapterType') || 'kubernetes'
     const serviceConfig = getOptionalObject(serviceInput, 'serviceConfig')
+    assertNoSensitiveKeys(serviceConfig, 'serviceConfig')
 
     const environmentName = getRequiredString(environmentInput, 'name')
     const deploymentTargetType =
@@ -235,6 +261,8 @@ r.post(
     const telemetrySourceConfig = getOptionalObject(environmentInput, 'telemetrySourceConfig')
     const telemetryLabelMap = getOptionalObject(environmentInput, 'telemetryLabelMap')
     const secretRefs = getOptionalObject(environmentInput, 'secretRefs')
+    assertNoSensitiveKeys(deploymentTargetConfig, 'deploymentTargetConfig')
+    assertNoSensitiveKeys(telemetrySourceConfig, 'telemetrySourceConfig')
 
     let telemetryValidation: Awaited<ReturnType<typeof validateTelemetryConfig>> | null = null
     if (validateTelemetry && telemetrySourceConfig) {
@@ -246,9 +274,9 @@ r.post(
 
     const created = await withTransaction(async (connection) => {
       const [projectInsert] = await connection.execute<ResultSetHeader>(
-        `INSERT INTO projects (name, repo_url, description)
-         VALUES (?, ?, ?)`,
-        [projectName, repoUrl, description],
+        `INSERT INTO projects (tenant_key, name, repo_url, description)
+         VALUES (?, ?, ?, ?)`,
+        [tenantKey, projectName, repoUrl, description],
       )
 
       const projectId = projectInsert.insertId
@@ -283,6 +311,7 @@ r.post(
       return {
         project: {
           id: projectId,
+          tenantKey,
           name: projectName,
           repoUrl,
           description,
@@ -292,17 +321,17 @@ r.post(
           projectId,
           name: serviceName,
           adapterType,
-          serviceConfig,
+          serviceConfig: redactStoredConfig(serviceConfig),
         },
         environment: {
           id: environmentInsert.insertId,
           projectId,
           name: environmentName,
           deploymentTargetType,
-          deploymentTargetConfig,
-          telemetrySourceConfig,
+          deploymentTargetConfig: redactStoredConfig(deploymentTargetConfig),
+          telemetrySourceConfig: redactStoredConfig(telemetrySourceConfig),
           telemetryLabelMap,
-          secretRefs,
+          secretRefs: redactSecretRefs(secretRefs),
         },
       }
     })
@@ -319,4 +348,3 @@ r.post(
 )
 
 export default r
-

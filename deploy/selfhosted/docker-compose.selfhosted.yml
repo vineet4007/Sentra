@@ -1,0 +1,35 @@
+x-sentra-runtime-defaults: &sentra-runtime-defaults
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  mysql:
+    <<: *sentra-runtime-defaults
+
+  redis:
+    <<: *sentra-runtime-defaults
+
+  prometheus:
+    <<: *sentra-runtime-defaults
+
+  loki:
+    <<: *sentra-runtime-defaults
+
+  promtail:
+    <<: *sentra-runtime-defaults
+
+  tempo:
+    <<: *sentra-runtime-defaults
+
+  api:
+    <<: *sentra-runtime-defaults
+
+  web:
+    <<: *sentra-runtime-defaults
+
+  controller:
+    <<: *sentra-runtime-defaults

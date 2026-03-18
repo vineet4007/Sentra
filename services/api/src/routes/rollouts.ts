@@ -1,8 +1,15 @@
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2/promise'
+import { resolveAiAdvisors } from '../ai.js'
 import { fromDbJson, queryRows, toIsoString, type SqlParam } from '../db.js'
 import { asyncHandler, ok, parseOptionalPositiveIntQuery } from '../http.js'
 import { getRolloutLiveStates, listRolloutLiveStates } from '../events.js'
+import {
+  deploymentBelongsToTenant,
+  getRequestTenantKey,
+  listTenantDeploymentIds,
+  redactStoredConfig,
+} from '../security.js'
 
 const r = Router()
 
@@ -71,15 +78,48 @@ type AuditEventRow = RowDataPacket & {
   occurredAt: Date
 }
 
+type SatelliteTaskRow = RowDataPacket & {
+  id: number
+  satelliteId: number
+  satelliteName: string
+  deploymentId: number | null
+  taskType: string
+  status: string
+  payload: string
+  result: string | null
+  errorMessage: string | null
+  createdBy: string | null
+  leaseOwner: string | null
+  leaseExpiresAt: Date | null
+  attempts: number
+  claimedAt: Date | null
+  completedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
 r.get(
   '/live',
   asyncHandler(async (req, res) => {
     const deploymentId = parseOptionalPositiveIntQuery(req.query.deploymentId, 'deploymentId')
+    const tenantKey = getRequestTenantKey(req)
 
-    const items =
-      deploymentId !== null
-        ? Array.from((await getRolloutLiveStates([deploymentId])).values())
-        : await listRolloutLiveStates()
+    let items
+    if (tenantKey) {
+      if (deploymentId !== null) {
+        items = (await deploymentBelongsToTenant(deploymentId, tenantKey))
+          ? Array.from((await getRolloutLiveStates([deploymentId])).values())
+          : []
+      } else {
+        const deploymentIds = await listTenantDeploymentIds(tenantKey)
+        items = Array.from((await getRolloutLiveStates(deploymentIds)).values())
+      }
+    } else {
+      items =
+        deploymentId !== null
+          ? Array.from((await getRolloutLiveStates([deploymentId])).values())
+          : await listRolloutLiveStates()
+    }
 
     ok(res, {
       items,
@@ -99,6 +139,7 @@ r.get(
       typeof req.query.status === 'string' && req.query.status.trim() !== ''
         ? req.query.status.trim()
         : null
+    const tenantKey = getRequestTenantKey(req)
 
     const where: string[] = []
     const params: SqlParam[] = []
@@ -118,6 +159,10 @@ r.get(
     if (status) {
       where.push('d.status = ?')
       params.push(status)
+    }
+    if (tenantKey) {
+      where.push('p.tenant_key = ?')
+      params.push(tenantKey)
     }
 
     params.push(limit)
@@ -146,6 +191,7 @@ r.get(
        FROM deployments d
        INNER JOIN services s ON s.id = d.service_id
        INNER JOIN environments e ON e.id = d.environment_id
+       INNER JOIN projects p ON p.id = s.project_id
        ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
        ORDER BY d.created_at DESC
        LIMIT ?`,
@@ -219,6 +265,32 @@ r.get(
       deploymentIds,
     )
 
+    const satelliteTaskRows = await queryRows<SatelliteTaskRow[]>(
+      `SELECT
+         t.id,
+         t.satellite_id AS satelliteId,
+         s.name AS satelliteName,
+         t.deployment_id AS deploymentId,
+         t.task_type AS taskType,
+         t.status,
+         t.payload,
+         t.result,
+         t.error_message AS errorMessage,
+         t.created_by AS createdBy,
+         t.lease_owner AS leaseOwner,
+         t.lease_expires_at AS leaseExpiresAt,
+         t.attempts,
+         t.claimed_at AS claimedAt,
+         t.completed_at AS completedAt,
+         t.created_at AS createdAt,
+         t.updated_at AS updatedAt
+       FROM satellite_tasks t
+       INNER JOIN satellites s ON s.id = t.satellite_id
+       WHERE t.deployment_id IN (${placeholders})
+       ORDER BY t.created_at DESC`,
+      deploymentIds,
+    )
+
     const stepsByDeployment = new Map<number, RolloutStepRow[]>()
     for (const step of stepRows) {
       const current = stepsByDeployment.get(step.deploymentId) || []
@@ -243,8 +315,79 @@ r.get(
       auditByDeployment.set(auditEvent.deploymentId, current)
     }
 
-    ok(res, {
-      items: deployments.map((deployment) => ({
+    const satelliteTasksByDeployment = new Map<number, SatelliteTaskRow[]>()
+    for (const task of satelliteTaskRows) {
+      if (task.deploymentId === null) {
+        continue
+      }
+      const current = satelliteTasksByDeployment.get(task.deploymentId) || []
+      current.push(task)
+      satelliteTasksByDeployment.set(task.deploymentId, current)
+    }
+
+    const rolloutItems = deployments.map((deployment) => {
+      const liveState = liveStateByDeployment.get(deployment.id) || null
+      const steps = (stepsByDeployment.get(deployment.id) || []).map((step) => ({
+        id: step.id,
+        deploymentId: step.deploymentId,
+        stepIndex: step.stepIndex,
+        targetWeight: step.targetWeight,
+        status: step.status,
+        decision: step.decision,
+        decisionReason: step.decisionReason,
+        metricsSnapshot: fromDbJson<Record<string, unknown>>(step.metricsSnapshot),
+        startedAt: toIsoString(step.startedAt),
+        evaluatedAt: toIsoString(step.evaluatedAt),
+        completedAt: toIsoString(step.completedAt),
+        createdAt: toIsoString(step.createdAt),
+        updatedAt: toIsoString(step.updatedAt),
+      }))
+      const incidents = (incidentsByDeployment.get(deployment.id) || []).map((incident) => ({
+        id: incident.id,
+        deploymentId: incident.deploymentId,
+        rolloutStepId: incident.rolloutStepId,
+        incidentType: incident.incidentType,
+        severity: incident.severity,
+        status: incident.status,
+        summary: incident.summary,
+        details: fromDbJson<Record<string, unknown>>(incident.details),
+        detectedAt: toIsoString(incident.detectedAt),
+        resolvedAt: toIsoString(incident.resolvedAt),
+        createdAt: toIsoString(incident.createdAt),
+        updatedAt: toIsoString(incident.updatedAt),
+      }))
+      const auditEvents = (auditByDeployment.get(deployment.id) || []).map((auditEvent) => ({
+        id: auditEvent.id,
+        deploymentId: auditEvent.deploymentId,
+        rolloutStepId: auditEvent.rolloutStepId,
+        actorType: auditEvent.actorType,
+        actorId: auditEvent.actorId,
+        eventType: auditEvent.eventType,
+        summary: auditEvent.summary,
+        details: fromDbJson<Record<string, unknown>>(auditEvent.details),
+        occurredAt: toIsoString(auditEvent.occurredAt),
+      }))
+      const satelliteTasks = (satelliteTasksByDeployment.get(deployment.id) || []).map((task) => ({
+        id: task.id,
+        satelliteId: task.satelliteId,
+        satelliteName: task.satelliteName,
+        deploymentId: task.deploymentId,
+        taskType: task.taskType,
+        status: task.status,
+        payload: fromDbJson<Record<string, unknown>>(task.payload),
+        result: fromDbJson<Record<string, unknown>>(task.result),
+        errorMessage: task.errorMessage,
+        createdBy: task.createdBy,
+        leaseOwner: task.leaseOwner,
+        leaseExpiresAt: toIsoString(task.leaseExpiresAt),
+        attempts: task.attempts,
+        claimedAt: toIsoString(task.claimedAt),
+        completedAt: toIsoString(task.completedAt),
+        createdAt: toIsoString(task.createdAt),
+        updatedAt: toIsoString(task.updatedAt),
+      }))
+
+      return {
         id: deployment.id,
         serviceId: deployment.serviceId,
         serviceName: deployment.serviceName,
@@ -256,7 +399,9 @@ r.get(
         status: deployment.status,
         initiatedBy: deployment.initiatedBy,
         source: deployment.source,
-        deploymentMetadata: fromDbJson<Record<string, unknown>>(deployment.deploymentMetadata),
+        deploymentMetadata: redactStoredConfig(
+          fromDbJson<Record<string, unknown>>(deployment.deploymentMetadata),
+        ),
         currentWeight: deployment.currentWeight,
         lastDecision: deployment.lastDecision,
         lastDecisionReason: deployment.lastDecisionReason,
@@ -264,47 +409,33 @@ r.get(
         completedAt: toIsoString(deployment.completedAt),
         createdAt: toIsoString(deployment.createdAt),
         updatedAt: toIsoString(deployment.updatedAt),
-        liveState: liveStateByDeployment.get(deployment.id) || null,
-        steps: (stepsByDeployment.get(deployment.id) || []).map((step) => ({
-          id: step.id,
-          deploymentId: step.deploymentId,
-          stepIndex: step.stepIndex,
-          targetWeight: step.targetWeight,
-          status: step.status,
-          decision: step.decision,
-          decisionReason: step.decisionReason,
-          metricsSnapshot: fromDbJson<Record<string, unknown>>(step.metricsSnapshot),
-          startedAt: toIsoString(step.startedAt),
-          evaluatedAt: toIsoString(step.evaluatedAt),
-          completedAt: toIsoString(step.completedAt),
-          createdAt: toIsoString(step.createdAt),
-          updatedAt: toIsoString(step.updatedAt),
-        })),
-        incidents: (incidentsByDeployment.get(deployment.id) || []).map((incident) => ({
-          id: incident.id,
-          deploymentId: incident.deploymentId,
-          rolloutStepId: incident.rolloutStepId,
-          incidentType: incident.incidentType,
-          severity: incident.severity,
-          status: incident.status,
-          summary: incident.summary,
-          details: fromDbJson<Record<string, unknown>>(incident.details),
-          detectedAt: toIsoString(incident.detectedAt),
-          resolvedAt: toIsoString(incident.resolvedAt),
-          createdAt: toIsoString(incident.createdAt),
-          updatedAt: toIsoString(incident.updatedAt),
-        })),
-        auditEvents: (auditByDeployment.get(deployment.id) || []).map((auditEvent) => ({
-          id: auditEvent.id,
-          deploymentId: auditEvent.deploymentId,
-          rolloutStepId: auditEvent.rolloutStepId,
-          actorType: auditEvent.actorType,
-          actorId: auditEvent.actorId,
-          eventType: auditEvent.eventType,
-          summary: auditEvent.summary,
-          details: fromDbJson<Record<string, unknown>>(auditEvent.details),
-          occurredAt: toIsoString(auditEvent.occurredAt),
-        })),
+        liveState,
+        steps,
+        incidents,
+        auditEvents,
+        satelliteTasks,
+      }
+    })
+
+    const aiAdvisorByDeployment = await resolveAiAdvisors(
+      rolloutItems.map((rollout) => ({
+        deploymentId: rollout.id,
+        status: rollout.status,
+        currentWeight: rollout.currentWeight,
+        lastDecision: rollout.lastDecision,
+        lastDecisionReason: rollout.lastDecisionReason,
+        liveState: rollout.liveState,
+        incidents: rollout.incidents,
+        steps: rollout.steps,
+        auditEvents: rollout.auditEvents,
+        satelliteTasks: rollout.satelliteTasks,
+      })),
+    )
+
+    ok(res, {
+      items: rolloutItems.map((rollout) => ({
+        ...rollout,
+        aiAdvisor: aiAdvisorByDeployment.get(rollout.id),
       })),
       count: deployments.length,
     })

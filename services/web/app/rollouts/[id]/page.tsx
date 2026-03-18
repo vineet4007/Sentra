@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { RolloutDetailView } from '@/components/rollout-detail-view'
-import { getRollout } from '@/lib/api'
+import { getRollout, getSatellites } from '@/lib/api'
 
 type RolloutDetailPageProps = {
   params: Promise<{
@@ -16,10 +16,10 @@ export default async function RolloutDetailPage({ params }: RolloutDetailPagePro
     notFound()
   }
 
-  const rollout = await getRollout(deploymentId)
+  const [rollout, satellites] = await Promise.all([getRollout(deploymentId), getSatellites()])
   if (!rollout) {
     notFound()
   }
 
-  return <RolloutDetailView rollout={rollout} />
+  return <RolloutDetailView rollout={rollout} satellites={satellites} />
 }

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { Rollout } from '@/lib/types'
+import { AiAdvisorPanel } from '@/components/ai-advisor-panel'
 import { StatusPill } from '@/components/status-pill'
 import { StepTrack } from '@/components/step-track'
 
@@ -62,6 +63,8 @@ export function RolloutCard({ rollout }: RolloutCardProps) {
 
       <StepTrack steps={rollout.steps} />
 
+      <AiAdvisorPanel advisor={rollout.aiAdvisor} compact />
+
       <div className="gate-grid">
         {gateResults.length === 0 ? (
           <p className="muted">Telemetry gates will appear here after the controller evaluates this rollout.</p>
@@ -86,8 +89,12 @@ export function RolloutCard({ rollout }: RolloutCardProps) {
           <strong>{rollout.liveState?.summary || rollout.lastDecisionReason || 'Waiting for the next reconcile.'}</strong>
         </div>
         <div>
-          <span>Latest audit</span>
-          <strong>{latestAudit?.summary || 'No audit events yet.'}</strong>
+          <span>Federation</span>
+          <strong>
+            {rollout.satelliteTasks[0]
+              ? `${rollout.satelliteTasks[0].status} via ${rollout.satelliteTasks[0].satelliteName}`
+              : latestAudit?.summary || 'No delegated task recorded yet.'}
+          </strong>
         </div>
       </footer>
     </Link>

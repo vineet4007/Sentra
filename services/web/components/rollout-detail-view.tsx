@@ -1,11 +1,14 @@
 import Link from 'next/link'
-import type { Rollout } from '@/lib/types'
+import type { Rollout, Satellite } from '@/lib/types'
+import { AiAdvisorPanel } from '@/components/ai-advisor-panel'
+import { DelegateTaskPanel } from '@/components/delegate-task-panel'
 import { LiveEventStream } from '@/components/live-event-stream'
 import { StatusPill } from '@/components/status-pill'
 import { StepTrack } from '@/components/step-track'
 
 type RolloutDetailViewProps = {
   rollout: Rollout
+  satellites: Satellite[]
 }
 
 function toneForDecision(decision?: string | null): 'neutral' | 'good' | 'warn' | 'critical' | 'accent' {
@@ -24,7 +27,7 @@ function toneForDecision(decision?: string | null): 'neutral' | 'good' | 'warn' 
   }
 }
 
-export function RolloutDetailView({ rollout }: RolloutDetailViewProps) {
+export function RolloutDetailView({ rollout, satellites }: RolloutDetailViewProps) {
   const liveDecision = rollout.liveState?.decision || rollout.lastDecision || rollout.status
   const gateResults = rollout.liveState?.evaluation?.gateResults || []
   const telemetryWindow = rollout.liveState?.evaluation?.telemetrySnapshot?.window
@@ -40,11 +43,16 @@ export function RolloutDetailView({ rollout }: RolloutDetailViewProps) {
           <h1>{rollout.serviceName}</h1>
           <p>{rollout.liveState?.summary || rollout.lastDecisionReason || 'Sentra is waiting for the next action.'}</p>
         </div>
-        <StatusPill label={liveDecision || 'idle'} tone={toneForDecision(liveDecision)} />
+        <div className="detail-header__stack">
+          <StatusPill label={liveDecision || 'idle'} tone={toneForDecision(liveDecision)} />
+          <StatusPill label={`${rollout.currentWeight}% live`} tone="accent" />
+        </div>
       </section>
 
       <section className="detail-grid">
         <div className="detail-main">
+          <AiAdvisorPanel advisor={rollout.aiAdvisor} />
+
           <section className="panel">
             <header className="panel__header">
               <div>
@@ -129,6 +137,44 @@ export function RolloutDetailView({ rollout }: RolloutDetailViewProps) {
 
         <aside className="detail-side">
           <LiveEventStream deploymentId={rollout.id} />
+
+          <DelegateTaskPanel rollout={rollout} satellites={satellites} />
+
+          <section className="panel">
+            <header className="panel__header">
+              <div>
+                <p className="eyebrow">Federated execution</p>
+                <h2>Recent delegated work for this rollout.</h2>
+              </div>
+            </header>
+            <div className="timeline">
+              {rollout.satelliteTasks.length === 0 ? (
+                <p className="muted">This rollout has not been delegated to a satellite yet.</p>
+              ) : (
+                rollout.satelliteTasks.map((task) => (
+                  <article key={task.id} className="timeline__item timeline__item--task">
+                    <StatusPill label={task.status} tone={task.status === 'completed' ? 'good' : task.status === 'failed' ? 'critical' : 'accent'} />
+                    <div>
+                      <strong>
+                        {task.taskType} on {task.satelliteName}
+                      </strong>
+                      <span>
+                        {task.completedAt
+                          ? `Finished ${new Date(task.completedAt).toLocaleString()}`
+                          : task.claimedAt
+                            ? `Claimed ${new Date(task.claimedAt).toLocaleString()}`
+                            : `Queued ${task.createdAt ? new Date(task.createdAt).toLocaleString() : 'recently'}`}
+                      </span>
+                      <Link href={`/satellites/${task.satelliteId}`} className="inline-link">
+                        Open satellite
+                      </Link>
+                      {task.errorMessage ? <span className="task-error">{task.errorMessage}</span> : null}
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
 
           <section className="panel">
             <header className="panel__header">
