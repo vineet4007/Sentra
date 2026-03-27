@@ -235,6 +235,21 @@ async function fetchRollout(deploymentId) {
   return response.data.items[0]
 }
 
+async function fetchAiEvaluationSummary() {
+  const response = await requestJson(apiBaseUrl, '/ai/evaluation?limit=20')
+  return response.data
+}
+
+async function fetchAiBenchmarkReport() {
+  const response = await requestJson(apiBaseUrl, '/ai/benchmark?limit=20')
+  return response.data
+}
+
+async function fetchAiDataset(series) {
+  const response = await requestJson(apiBaseUrl, `/ai/dataset?series=${series}&limit=50`)
+  return response.data
+}
+
 async function verifyHealthyPromotion(serviceId, environmentId, policyId) {
   const revision = `promote-${runId}`
   log(`Creating healthy deployment ${revision}`)
@@ -266,6 +281,14 @@ async function verifyHealthyPromotion(serviceId, environmentId, policyId) {
     `Expected external AI service engine, got ${rollout.aiAdvisor?.engine}`,
   )
   assert(typeof rollout.aiAdvisor?.riskScore === 'number', 'Expected AI advisor risk score to be numeric')
+  assert(
+    typeof rollout.aiAdvisor?.prediction?.rollbackProbabilityPct === 'number',
+    'Expected AI advisor prediction rollback probability to be numeric',
+  )
+  assert(
+    typeof rollout.aiShadow?.review?.status === 'string',
+    'Expected rollout to include AI shadow review status',
+  )
   assert(
     rollout.steps.some((step) => step.stepIndex === 0 && step.status === 'completed'),
     'Expected first rollout step to be completed after promotion',
@@ -317,6 +340,25 @@ async function main() {
 
   await verifyHealthyPromotion(onboarded.service.id, onboarded.environment.id, policy.id)
   await verifyRollbackFailurePath(onboarded.service.id, onboarded.environment.id, policy.id)
+
+   const aiEvaluation = await fetchAiEvaluationSummary()
+   assert(aiEvaluation.overview.evaluatedDeployments >= 2, 'Expected AI evaluation summary to include the new rollouts')
+   assert(Array.isArray(aiEvaluation.services), 'Expected AI evaluation summary to include service scorecards')
+   assert(Array.isArray(aiEvaluation.examples), 'Expected AI evaluation summary to include example rollouts')
+   assert(Array.isArray(aiEvaluation.timeline), 'Expected AI evaluation summary to include timeline buckets')
+   assert(Array.isArray(aiEvaluation.calibration), 'Expected AI evaluation summary to include calibration buckets')
+   assert(Array.isArray(aiEvaluation.engines), 'Expected AI evaluation summary to include engine scorecards')
+   assert(aiEvaluation.comparison && typeof aiEvaluation.comparison === 'object', 'Expected AI evaluation summary to include series comparison')
+   assert(aiEvaluation.comparison.candidate, 'Expected AI evaluation summary to include a candidate comparison stream')
+
+   const aiBenchmark = await fetchAiBenchmarkReport()
+   assert(aiBenchmark.report && typeof aiBenchmark.report === 'object', 'Expected AI benchmark endpoint to return a report')
+   assert(Array.isArray(aiBenchmark.report.gates), 'Expected AI benchmark report to include readiness gates')
+   assert(typeof aiBenchmark.report.recommendation === 'string', 'Expected AI benchmark report to include a recommendation')
+
+   const aiDatasetPrimary = await fetchAiDataset('primary')
+   assert(Array.isArray(aiDatasetPrimary.items), 'Expected AI dataset endpoint to return primary rows')
+   assert(aiDatasetPrimary.summary?.series === 'primary', 'Expected AI dataset summary to report primary series')
 
   log(`Integration rollout verification passed for project ${projectName}`)
 }

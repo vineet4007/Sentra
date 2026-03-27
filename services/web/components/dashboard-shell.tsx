@@ -1,8 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import type { Project, Rollout, Satellite } from '@/lib/types'
+import type { AiBenchmarkReport, AiShadowEvaluationSummary, Project, Rollout, Satellite } from '@/lib/types'
 import { AiAdvisorPanel } from '@/components/ai-advisor-panel'
+import { AiBenchmarkPanel } from '@/components/ai-benchmark-panel'
+import { AiEvaluationPanel } from '@/components/ai-evaluation-panel'
 import { LiveEventStream } from '@/components/live-event-stream'
 import { OnboardingPanel } from '@/components/onboarding-panel'
 import { RolloutCard } from '@/components/rollout-card'
@@ -12,6 +14,8 @@ type DashboardShellProps = {
   projects: Project[]
   rollouts: Rollout[]
   satellites: Satellite[]
+  aiEvaluation: AiShadowEvaluationSummary
+  aiBenchmark: AiBenchmarkReport
 }
 
 function summarizeProjects(projects: Project[]) {
@@ -43,7 +47,7 @@ function toneForSatellite(satellite: Satellite): 'neutral' | 'good' | 'warn' | '
   return 'accent'
 }
 
-export function DashboardShell({ projects, rollouts, satellites }: DashboardShellProps) {
+export function DashboardShell({ projects, rollouts, satellites, aiEvaluation, aiBenchmark }: DashboardShellProps) {
   const staleSatellites = satellites.filter((satellite) => satellite.stale).length
   const taskWorkers = satellites.filter((satellite) => satellite.capabilities?.taskWorker === true).length
   const delegatedRollouts = rollouts.filter((rollout) => rollout.satelliteTasks.length > 0).length
@@ -55,6 +59,9 @@ export function DashboardShell({ projects, rollouts, satellites }: DashboardShel
       .slice()
       .sort((left, right) => right.aiAdvisor.riskScore - left.aiAdvisor.riskScore)[0]
       ?.aiAdvisor || null
+  const matchedShadowReviews = rollouts.filter((rollout) => rollout.aiShadow.review.status === 'matched').length
+  const earlyWarnings = rollouts.filter((rollout) => rollout.aiShadow.review.status === 'early_warning').length
+  const falsePositives = rollouts.filter((rollout) => rollout.aiShadow.review.status === 'false_positive').length
 
   return (
     <main className="dashboard">
@@ -100,7 +107,11 @@ export function DashboardShell({ projects, rollouts, satellites }: DashboardShel
         <article className="overview-ribbon__card">
           <span>AI posture</span>
           <strong>{featuredAdvisor ? `${featuredAdvisor.riskScore}/100 risk ceiling` : 'waiting for rollouts'}</strong>
-          <p>{featuredAdvisor ? featuredAdvisor.headline : 'Once rollouts evaluate, the shadow advisor will show up here.'}</p>
+          <p>
+            {rollouts.length > 0
+              ? `${matchedShadowReviews} matched, ${earlyWarnings} early warnings, ${falsePositives} noisy alerts.`
+              : 'Once rollouts evaluate, the shadow advisor will show up here.'}
+          </p>
         </article>
         <article className="overview-ribbon__card">
           <span>Federation posture</span>
@@ -108,6 +119,10 @@ export function DashboardShell({ projects, rollouts, satellites }: DashboardShel
           <p>{delegatedRollouts > 0 ? `${delegatedRollouts} rollouts already have satellite task history.` : 'No delegated execution yet.'}</p>
         </article>
       </section>
+
+      <AiBenchmarkPanel report={aiBenchmark} />
+
+      <AiEvaluationPanel evaluation={aiEvaluation} />
 
       <section className="dashboard-grid">
         <div className="dashboard-grid__left">

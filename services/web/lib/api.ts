@@ -1,6 +1,14 @@
 import 'server-only'
 
-import type { Project, ProjectDetails, Rollout, Satellite, SatelliteTask } from '@/lib/types'
+import type {
+  AiBenchmarkEnvelope,
+  AiShadowEvaluationSummary,
+  Project,
+  ProjectDetails,
+  Rollout,
+  Satellite,
+  SatelliteTask,
+} from '@/lib/types'
 
 const sentraApiBaseUrl = process.env.SENTRA_API_URL || 'http://localhost:8080'
 
@@ -58,6 +66,14 @@ export async function getRollouts(limit = 12): Promise<Rollout[]> {
 export async function getRollout(deploymentId: number): Promise<Rollout | null> {
   const data = await sentraFetch<ListEnvelope<Rollout>>(`/rollouts?deploymentId=${deploymentId}`)
   return data.items[0] || null
+}
+
+export async function getAiEvaluationSummary(limit = 50): Promise<AiShadowEvaluationSummary> {
+  return sentraFetch<AiShadowEvaluationSummary>(`/ai/evaluation?limit=${limit}`)
+}
+
+export async function getAiBenchmarkReport(limit = 100): Promise<AiBenchmarkEnvelope> {
+  return sentraFetch<AiBenchmarkEnvelope>(`/ai/benchmark?limit=${limit}`)
 }
 
 export async function getSatellites(): Promise<Satellite[]> {

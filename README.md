@@ -88,6 +88,9 @@ Local note:
 - `GET /events` now sends an initial `rollout_snapshot` event from Redis before streaming new rollout events.
 - `GET /rollouts` now includes persisted `auditEvents` alongside rollout steps, incidents, and Redis-backed live state.
 - `GET /rollouts` now also includes `aiAdvisor` shadow-mode output plus deployment-linked `satelliteTasks`.
+- `GET /rollouts` now also includes `aiShadow`, which carries persisted AI advisory history plus a shadow scorecard that compares AI warnings against real rollout outcomes.
+- `GET /ai/evaluation` now exposes fleet-level and service-level AI shadow accuracy, recall, precision, backtest timeline buckets, calibration buckets, engine scorecards, model-series comparison, and example rollouts so operators can tell whether the advisory model is getting better.
+- `GET /ai/benchmark` now turns that evaluation data into an explicit promotion-readiness report with pass/fail gates for overlap, resolved outcomes, accuracy, recall, precision, and calibration.
 - The web service proxies API and SSE traffic through `/api/*`, so the browser does not need direct CORS access to the backend services.
 - When API auth is enabled, the web proxy will forward `SENTRA_API_BEARER_TOKEN` and `SENTRA_DEFAULT_TENANT` automatically for same-origin UI requests.
 - Project and environment reads now redact stored secret references and sensitive config keys from API responses.
@@ -152,7 +155,7 @@ Local note:
 - Step 10 now also adds AWS Lambda alias traffic control. It supports local `simulation` mode plus guarded `aws` CLI alias updates for weighted canaries.
 - Step 10 now also adds Azure Container Apps revision traffic control. It supports local `simulation` mode plus guarded `az` CLI traffic updates for revision-based rollouts.
 - Step 10 now also adds delegated federation. Satellites can heartbeat into the API coordinator, advertise task-worker capability, claim queued reconcile tasks, execute them locally, and report completion centrally.
-- Step 10 now also adds the first AI shadow-mode advisory layer. Rollouts are enriched with heuristic risk scoring, recommendation hints, and rationale, but Sentra still treats that layer as advisory-only.
+- Step 10 now also adds a baseline-aware AI shadow-mode advisory layer. Rollouts are enriched with structured anomaly signals, prediction metadata, persisted advisory history, shadow scorecards, recent-risk drift against their own advisory baseline, a fleet-level `/ai/evaluation` summary, backtest timeline buckets, calibration views, and a persisted primary-vs-candidate model comparison stream, but Sentra still treats that layer as advisory-only.
 - Step 10 now also adds optional bearer auth on controller rollout endpoints so reconcile and evaluation actions can be protected independently from public health checks.
 
 Reconcile example:
@@ -247,7 +250,17 @@ AI advisory note:
   - `riskScore`
   - `confidencePct`
   - `recommendation`
+  - predicted outcome and rollback probability
+  - baseline drift against recent advisory history
+  - structured anomaly summaries
   - operator-facing rationale and signal summaries
+- Sentra now persists advisory snapshots in MySQL through `ai_advisories`, then exposes `aiShadow.history`, `aiShadow.baseline`, and `aiShadow.review` so operators can see whether the shadow advisor was early, accurate, noisy, or missed a risk and how far current risk has drifted from baseline.
+- Sentra now also exposes `GET /ai/evaluation`, which summarizes shadow-mode coverage, accuracy, risky-outcome recall, warning precision, service scorecards, recent example rollouts, backtest timeline buckets, calibration buckets, engine scorecards, and persisted primary-vs-candidate model comparison from the advisory history.
+- Sentra now persists AI advisory snapshots under `series=primary` and `series=candidate`, so the current shadow stream and the experimental model can be compared on the same rollout set without polluting rollout detail history.
+- Sentra now also exposes `GET /ai/benchmark`, which packages the same comparison into a recommendation-oriented benchmark report and is used by the dashboard plus the offline report exporter.
+- Sentra now also exposes `GET /ai/dataset`, which exports labeled advisory rows from the stored rollout history so offline training, feature review, and model iteration can happen outside the live control loop.
+- A first offline learning artifact now exists through `scripts/train-ai-risk-profile.mjs`, which turns the exported dataset into an empirical risk profile for the candidate advisory series under `reports/ai/models/`.
+- The candidate advisory runtime now consumes that exported profile through `config/ai/candidate-risk-profile.json`, so newer candidate advisories can be calibrated by historical outcome buckets instead of only hand-tuned rules.
 - This layer is intentionally non-authoritative. It does not override the deterministic controller.
 
 ## Dev
@@ -261,6 +274,8 @@ AI advisory note:
   ```
 
 ## Verification
+- The current repo-level release lock lives in `VERSION`.
+- The current locked baseline is `0.2.0-beta.1`.
 - Smoke-check the local stack:
   ```bash
   make smoke
@@ -269,7 +284,39 @@ AI advisory note:
   ```bash
   make integration
   ```
-- `make integration` now also verifies that rollouts expose AI shadow advisor output.
+- `make integration` now also verifies that rollouts expose AI shadow advisor prediction and review output plus the fleet evaluation summary, backtesting buckets, calibration data, and primary-vs-candidate comparison data.
+- Generate the offline AI benchmark report:
+  ```bash
+  make ai-benchmark
+  ```
+- `make ai-benchmark` writes:
+  - `reports/ai/latest.md`
+  - `reports/ai/latest.json`
+- Export the offline AI training dataset:
+  ```bash
+  make ai-dataset
+  ```
+- `make ai-dataset` writes:
+  - `reports/ai/datasets/primary-latest.jsonl`
+  - `reports/ai/datasets/candidate-latest.jsonl`
+  - `reports/ai/datasets/latest-summary.md`
+  - `reports/ai/datasets/latest-summary.json`
+- Build the first offline candidate risk profile:
+  ```bash
+  make ai-train-profile
+  ```
+- `make ai-train-profile` writes:
+  - `reports/ai/models/candidate-risk-profile.md`
+  - `reports/ai/models/candidate-risk-profile.json`
+- `make ai-train-profile` also syncs the runtime candidate profile to:
+  - `services/api/config/ai/candidate-risk-profile.json`
+- The current local AI dataset is generated from synthetic smoke and verifier runs, so these offline artifacts validate the workflow but should not be treated as production-grade model evidence yet.
+- Run the full version-stamped regression suite for the locked release:
+  ```bash
+  make regression
+  ```
+- `make regression` writes a summary plus logs under:
+  - `reports/regression/<version>/<timestamp>/summary.md`
 - Run the container-backed AI advisor unit tests:
   ```bash
   make ai-test
@@ -278,7 +325,7 @@ AI advisory note:
   ```bash
   make federation
   ```
-- `make federation` now verifies both satellite heartbeats and delegated reconcile task execution through the coordinator queue.
+- `make federation` now verifies both satellite heartbeats and delegated reconcile task execution through the coordinator queue, including AI shadow review output on delegated rollouts.
 - Run both:
   ```bash
   make verify

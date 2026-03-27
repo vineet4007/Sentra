@@ -1,0 +1,74 @@
+{
+  "generatedAt": "2026-03-27T04:48:27.799Z",
+  "primary": {
+    "generatedAt": "2026-03-27T04:48:27.784Z",
+    "series": "primary",
+    "rowCount": 50,
+    "resolvedRows": 12,
+    "riskyRows": 12,
+    "riskyOutcomePct": 24,
+    "engineBreakdown": {
+      "fastapi-shadow-v1": 50
+    },
+    "outcomeBreakdown": {
+      "running": 38,
+      "rolled_back": 12
+    },
+    "reviewStatusBreakdown": {
+      "pending": 38,
+      "matched": 10,
+      "false_negative": 2
+    }
+  },
+  "candidate": {
+    "generatedAt": "2026-03-27T04:48:27.795Z",
+    "series": "candidate",
+    "rowCount": 36,
+    "resolvedRows": 10,
+    "riskyRows": 10,
+    "riskyOutcomePct": 27.8,
+    "engineBreakdown": {
+      "candidate-shadow-v3-profiled": 3,
+      "candidate-shadow-v2": 33
+    },
+    "outcomeBreakdown": {
+      "running": 26,
+      "rolled_back": 10
+    },
+    "reviewStatusBreakdown": {
+      "informational": 2,
+      "matched": 10,
+      "pending": 24
+    }
+  },
+  "schema": [
+    "advisoryId",
+    "deploymentId",
+    "serviceId",
+    "serviceName",
+    "environmentId",
+    "environmentName",
+    "series",
+    "engine",
+    "mode",
+    "advisoryCreatedAt",
+    "deploymentStatus",
+    "lastDecision",
+    "recommendation",
+    "severity",
+    "predictedOutcome",
+    "riskScore",
+    "confidencePct",
+    "rollbackProbabilityPct",
+    "nextStepRiskPct",
+    "anomalyKinds",
+    "anomalyCount",
+    "signalLabels",
+    "signalCount",
+    "actualOutcome",
+    "reviewStatus",
+    "riskyOutcome",
+    "warningLike",
+    "warningLeadSec"
+  ]
+}

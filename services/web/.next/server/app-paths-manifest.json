@@ -1,8 +1,8 @@
 {
+  "/api/[...path]/route": "app/api/[...path]/route.js",
   "/_global-error/page": "app/_global-error/page.js",
   "/_not-found/page": "app/_not-found/page.js",
-  "/rollouts/[id]/page": "app/rollouts/[id]/page.js",
-  "/satellites/[id]/page": "app/satellites/[id]/page.js",
   "/page": "app/page.js",
-  "/api/[...path]/route": "app/api/[...path]/route.js"
+  "/satellites/[id]/page": "app/satellites/[id]/page.js",
+  "/rollouts/[id]/page": "app/rollouts/[id]/page.js"
 }

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { Rollout, Satellite } from '@/lib/types'
 import { AiAdvisorPanel } from '@/components/ai-advisor-panel'
+import { AiShadowReviewPanel } from '@/components/ai-shadow-review-panel'
 import { DelegateTaskPanel } from '@/components/delegate-task-panel'
 import { LiveEventStream } from '@/components/live-event-stream'
 import { StatusPill } from '@/components/status-pill'
@@ -52,6 +53,7 @@ export function RolloutDetailView({ rollout, satellites }: RolloutDetailViewProp
       <section className="detail-grid">
         <div className="detail-main">
           <AiAdvisorPanel advisor={rollout.aiAdvisor} />
+          <AiShadowReviewPanel shadow={rollout.aiShadow} />
 
           <section className="panel">
             <header className="panel__header">

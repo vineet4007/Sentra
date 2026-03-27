@@ -13,6 +13,7 @@ FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/config ./config
 COPY package.json ./package.json
 RUN npm i --omit=dev
 EXPOSE 8080

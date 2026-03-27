@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs build fmt lint ci db-migrate smoke integration federation verify package ai-test
+.PHONY: up down logs build fmt lint ci db-migrate smoke integration federation verify regression package ai-test ai-benchmark ai-dataset ai-train-profile
 
 up:
 	docker compose up -d --build
@@ -18,6 +18,15 @@ build:
 
 ai-test:
 	docker compose run --rm --no-deps ai python -m unittest discover -s tests
+
+ai-benchmark:
+	node scripts/generate-ai-benchmark-report.mjs
+
+ai-dataset:
+	node scripts/export-ai-training-dataset.mjs
+
+ai-train-profile:
+	node scripts/train-ai-risk-profile.mjs
 
 fmt:
 	cd services/controller && go fmt ./...
@@ -39,6 +48,9 @@ federation:
 	bash scripts/verify-federation-flow.sh
 
 verify: smoke integration federation
+
+regression:
+	bash scripts/run-regression-suite.sh
 
 package:
 	bash scripts/package-selfhosted.sh

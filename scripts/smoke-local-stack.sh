@@ -49,5 +49,8 @@ check_contains "Loki metrics" "${LOKI_URL}/metrics" 'loki_request_duration_secon
 check_contains "Tempo metrics" "${TEMPO_URL}/metrics" 'tempo_request_duration_seconds'
 check_ai_health
 check_contains "API live rollouts" "${API_URL}/rollouts/live" '"ok":true'
+check_contains "API AI evaluation" "${API_URL}/ai/evaluation" '"timeline"'
+check_contains "API AI benchmark" "${API_URL}/ai/benchmark" '"recommendation"'
+check_contains "API AI dataset" "${API_URL}/ai/dataset" '"series"'
 
 echo "Local stack smoke checks passed."

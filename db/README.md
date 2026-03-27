@@ -20,6 +20,7 @@ This folder holds the control-plane schema for Sentra.
 | `rollout_steps` | Controller | API, Controller | Controller records each step evaluation and decision. |
 | `incidents` | Controller | API, Controller | Controller records regressions, pauses, and rollback triggers. |
 | `audit_events` | API and Controller | API, Controller | API writes user-initiated audit events; controller writes system decisions and actions. |
+| `ai_advisories` | API | API, Web | Persisted shadow-mode AI advisory snapshots used for rollout history, anomaly review, prediction scoring, and primary-vs-candidate model comparison via the `series` column. |
 | `satellites` | API | API, Controller | Global coordinator registry for federated satellite heartbeats, capabilities, and freshness. |
 | `satellite_tasks` | API queues, Controller completes | API, Controller | Coordinator-owned delegated execution queue for federated satellite reconcile work and reported results. |
 | `schema_migrations` | Migration runner | API, Controller | Tracks which schema files have been applied. |

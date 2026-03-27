@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 Tone = Literal["neutral", "good", "warn", "critical", "accent"]
 Recommendation = Literal["continue", "pause", "rollback", "investigate", "collect_more_data"]
 Severity = Literal["low", "elevated", "high", "critical"]
+AnomalySeverity = Literal["low", "medium", "high", "critical"]
+PredictedOutcome = Literal["stable", "watch", "rollback_risk", "rollback_expected", "awaiting_data"]
 
 
 class GateLike(BaseModel):
@@ -59,6 +61,28 @@ class AiAdvisorSignal(BaseModel):
     value: str
 
 
+class AiAdvisorAnomaly(BaseModel):
+    kind: Literal[
+        "incident_pressure",
+        "telemetry_failure",
+        "telemetry_gap",
+        "threshold_margin",
+        "federation_failure",
+        "healthy_progress",
+        "baseline_shift",
+    ]
+    severity: AnomalySeverity
+    label: str
+    summary: str
+
+
+class AiAdvisorPrediction(BaseModel):
+    predictedOutcome: PredictedOutcome
+    rollbackProbabilityPct: int
+    nextStepRiskPct: int
+    shouldEscalate: bool
+
+
 class AiAdvisor(BaseModel):
     mode: Literal["shadow"] = "shadow"
     engine: str = "fastapi-shadow-v1"
@@ -70,6 +94,8 @@ class AiAdvisor(BaseModel):
     summary: str
     rationales: list[str]
     signals: list[AiAdvisorSignal]
+    anomalies: list[AiAdvisorAnomaly]
+    prediction: AiAdvisorPrediction
 
 
 class RolloutAdvisorContext(BaseModel):

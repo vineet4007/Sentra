@@ -1,6 +1,7 @@
 import express from 'express'
 import { createDatabasePool } from './db.js'
 import { createRolloutEventSubscriber, listRolloutLiveStates } from './events.js'
+import aiRouter from './routes/ai.js'
 import deploymentRouter from './routes/deployments.js'
 import environmentRouter from './routes/environments.js'
 import { createClient } from './redis.js'
@@ -25,6 +26,7 @@ const security = getApiSecurityConfig()
 app.use(express.json())
 app.use('/health', healthRouter)
 app.use(createApiSecurityMiddleware(security))
+app.use('/ai', aiRouter)
 app.use('/projects', projectRouter)
 app.use('/environments', environmentRouter)
 app.use('/integrations', integrationRouter)

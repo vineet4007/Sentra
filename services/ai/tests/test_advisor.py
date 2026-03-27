@@ -21,6 +21,9 @@ class AdvisorTests(unittest.TestCase):
         self.assertEqual(advisor.recommendation, "rollback")
         self.assertEqual(advisor.severity, "critical")
         self.assertGreaterEqual(advisor.riskScore, 80)
+        self.assertEqual(advisor.prediction.predictedOutcome, "rollback_expected")
+        self.assertTrue(advisor.prediction.shouldEscalate)
+        self.assertGreaterEqual(len(advisor.anomalies), 1)
 
     def test_recommends_continue_for_healthy_rollout(self):
         advisor = build_ai_advisor(
@@ -60,6 +63,46 @@ class AdvisorTests(unittest.TestCase):
         self.assertEqual(advisor.recommendation, "continue")
         self.assertIn(advisor.severity, ("low", "elevated"))
         self.assertLess(advisor.riskScore, 40)
+        self.assertEqual(advisor.prediction.predictedOutcome, "stable")
+        self.assertFalse(advisor.prediction.shouldEscalate)
+        self.assertGreaterEqual(len(advisor.anomalies), 1)
+
+    def test_detects_baseline_shift_from_metadata(self):
+        advisor = build_ai_advisor(
+            RolloutAdvisorContext(
+                deploymentId=3,
+                status="running",
+                currentWeight=50,
+                lastDecision="promote",
+                liveState={
+                    "decision": "promote",
+                    "evaluation": {
+                        "gateResults": [
+                            {
+                                "name": "errorRatePct",
+                                "signalStatus": "ok",
+                                "passed": True,
+                                "value": 1.7,
+                                "threshold": {"max": 2},
+                            }
+                        ]
+                    },
+                },
+                incidents=[],
+                steps=[{"status": "completed"}, {"status": "in_progress"}],
+                auditEvents=[{"summary": "Promoted to 50%"}],
+                metadata={
+                    "shadowBaseline": {
+                        "sampleCount": 4,
+                        "avgRiskScore": 18,
+                        "avgConfidencePct": 76,
+                    }
+                },
+            )
+        )
+
+        self.assertTrue(any(anomaly.kind == "baseline_shift" for anomaly in advisor.anomalies))
+        self.assertIn(advisor.recommendation, ("investigate", "continue"))
 
 
 if __name__ == "__main__":

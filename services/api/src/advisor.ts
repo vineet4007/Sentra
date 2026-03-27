@@ -6,6 +6,7 @@ export type GateLike = {
   value?: number
   unit?: string
   reason?: string
+  threshold?: Record<string, number | null | undefined>
 }
 
 export type IncidentLike = {
@@ -44,6 +45,27 @@ export type AiAdvisorSignal = {
   value: string
 }
 
+export type AiAdvisorAnomaly = {
+  kind:
+    | 'incident_pressure'
+    | 'telemetry_failure'
+    | 'telemetry_gap'
+    | 'threshold_margin'
+    | 'federation_failure'
+    | 'healthy_progress'
+    | 'baseline_shift'
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  label: string
+  summary: string
+}
+
+export type AiAdvisorPrediction = {
+  predictedOutcome: 'stable' | 'watch' | 'rollback_risk' | 'rollback_expected' | 'awaiting_data'
+  rollbackProbabilityPct: number
+  nextStepRiskPct: number
+  shouldEscalate: boolean
+}
+
 export type AiAdvisor = {
   mode: 'shadow'
   engine: string
@@ -55,6 +77,8 @@ export type AiAdvisor = {
   summary: string
   rationales: string[]
   signals: AiAdvisorSignal[]
+  anomalies: AiAdvisorAnomaly[]
+  prediction: AiAdvisorPrediction
 }
 
 export type AiAdvisorInput = {
@@ -67,6 +91,7 @@ export type AiAdvisorInput = {
   steps: StepLike[]
   auditEvents: AuditLike[]
   satelliteTasks: SatelliteTaskLike[]
+  metadata?: Record<string, unknown> | null
 }
 
 export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
@@ -75,6 +100,7 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
   let recommendation: AiAdvisor['recommendation'] = 'investigate'
   const signals: AiAdvisorSignal[] = []
   const rationales: string[] = []
+  const anomalies: AiAdvisorAnomaly[] = []
 
   const openIncidents = input.incidents.filter((incident) => incident.status !== 'resolved')
   const criticalIncidents = openIncidents.filter((incident) => incident.severity === 'critical')
@@ -88,6 +114,8 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
   const completedSatelliteTasks = input.satelliteTasks.filter((task) => task.status === 'completed')
   const activeStep = input.steps.find((step) => step.status === 'in_progress')
   const completedSteps = input.steps.filter((step) => step.status === 'completed').length
+  const marginAlerts = thresholdMarginAlerts(gateResults)
+  const baseline = shadowBaselineFromMetadata(input.metadata)
 
   if (criticalIncidents.length > 0) {
     riskScore += 40 + Math.min(criticalIncidents.length * 8, 20)
@@ -99,6 +127,12 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
       tone: 'critical',
       value: `${criticalIncidents.length} critical open`,
     })
+    anomalies.push({
+      kind: 'incident_pressure',
+      severity: 'critical',
+      label: 'Critical incidents',
+      summary: `${criticalIncidents.length} critical incident${criticalIncidents.length === 1 ? '' : 's'} are still open.`,
+    })
   } else if (openIncidents.length > 0) {
     riskScore += 22 + Math.min(openIncidents.length * 5, 14)
     confidencePct += 8
@@ -108,6 +142,12 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
       label: 'Incidents',
       tone: 'warn',
       value: `${openIncidents.length} open`,
+    })
+    anomalies.push({
+      kind: 'incident_pressure',
+      severity: 'high',
+      label: 'Open incidents',
+      summary: `${openIncidents.length} incident${openIncidents.length === 1 ? '' : 's'} are still active.`,
     })
   } else {
     riskScore -= 8
@@ -133,6 +173,12 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
       tone: 'critical',
       value: `${failingGates.length + severeGates.length} failing`,
     })
+    anomalies.push({
+      kind: 'telemetry_failure',
+      severity: severeGates.length > 0 ? 'critical' : 'high',
+      label: 'Gate regressions',
+      summary: `${failingGates.length + severeGates.length} telemetry gate${failingGates.length + severeGates.length === 1 ? '' : 's'} are failing or severe.`,
+    })
   } else if (errorGates.length > 0 || noDataGates.length > 0) {
     riskScore += 10 + errorGates.length * 8 + noDataGates.length * 5
     if (recommendation !== 'rollback' && recommendation !== 'pause') {
@@ -148,17 +194,32 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
       tone: errorGates.length > 0 ? 'critical' : 'warn',
       value: errorGates.length > 0 ? `${errorGates.length} backend issues` : `${noDataGates.length} no-data`,
     })
+    anomalies.push({
+      kind: 'telemetry_gap',
+      severity: errorGates.length > 0 ? 'high' : 'medium',
+      label: errorGates.length > 0 ? 'Telemetry backend errors' : 'Telemetry gaps',
+      summary:
+        errorGates.length > 0
+          ? `${errorGates.length} telemetry backend error${errorGates.length === 1 ? '' : 's'} are lowering confidence.`
+          : `${noDataGates.length} rollout gate${noDataGates.length === 1 ? '' : 's'} still have no signal.`,
+    })
   } else if (passedGates.length > 0) {
     riskScore -= 14 + Math.min(passedGates.length * 3, 10)
     confidencePct += 14
     if (recommendation === 'investigate') {
-      recommendation = input.currentWeight >= 100 ? 'continue' : 'continue'
+      recommendation = 'continue'
     }
     rationales.push(`${passedGates.length} telemetry gate${passedGates.length === 1 ? '' : 's'} are currently healthy.`)
     signals.push({
       label: 'Telemetry gates',
       tone: 'good',
       value: `${passedGates.length} passing`,
+    })
+    anomalies.push({
+      kind: 'healthy_progress',
+      severity: 'low',
+      label: 'Healthy telemetry',
+      summary: `${passedGates.length} telemetry gate${passedGates.length === 1 ? '' : 's'} are within the configured threshold.`,
     })
   } else {
     riskScore += 6
@@ -168,6 +229,28 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
       label: 'Telemetry gates',
       tone: 'accent',
       value: 'awaiting data',
+    })
+  }
+
+  if (marginAlerts.length > 0) {
+    riskScore += Math.min(12, marginAlerts.length * 4)
+    confidencePct += 3
+    if (recommendation === 'continue') {
+      recommendation = 'investigate'
+    }
+    rationales.push(
+      `${marginAlerts.length} gate${marginAlerts.length === 1 ? '' : 's'} are close to the configured threshold, so promotion risk is rising.`,
+    )
+    signals.push({
+      label: 'Threshold margin',
+      tone: 'warn',
+      value: 'narrow',
+    })
+    anomalies.push({
+      kind: 'threshold_margin',
+      severity: 'medium',
+      label: 'Narrow threshold margin',
+      summary: `${marginAlerts.length} passing gate${marginAlerts.length === 1 ? '' : 's'} are close to the configured limit.`,
     })
   }
 
@@ -184,6 +267,12 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
       label: 'Federation',
       tone: 'warn',
       value: `${failedSatelliteTasks.length} failed task${failedSatelliteTasks.length === 1 ? '' : 's'}`,
+    })
+    anomalies.push({
+      kind: 'federation_failure',
+      severity: 'medium',
+      label: 'Federation task failures',
+      summary: `${failedSatelliteTasks.length} delegated task${failedSatelliteTasks.length === 1 ? '' : 's'} failed recently.`,
     })
   } else if (completedSatelliteTasks.length > 0) {
     riskScore -= 4
@@ -241,6 +330,60 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
     rationales.push(`Latest control-plane note: ${input.lastDecisionReason}`)
   }
 
+  if (baseline && baseline.sampleCount >= 3) {
+    const riskDrift = riskScore - baseline.avgRiskScore
+    const confidenceDrift = confidencePct - baseline.avgConfidencePct
+    if (riskDrift >= 18) {
+      riskScore += 4
+      confidencePct += 3
+      if (recommendation === 'continue') {
+        recommendation = 'investigate'
+      }
+      rationales.push(
+        `Current risk is ${Math.round(riskDrift)} points above the recent advisory baseline, which suggests a fresh anomaly rather than normal rollout noise.`,
+      )
+      signals.push({
+        label: 'Baseline drift',
+        tone: 'warn',
+        value: `+${Math.round(riskDrift)} risk`,
+      })
+      anomalies.push({
+        kind: 'baseline_shift',
+        severity: riskDrift >= 28 ? 'high' : 'medium',
+        label: 'Risk above baseline',
+        summary: `Current advisory risk is ${Math.round(riskDrift)} points above the recent baseline.`,
+      })
+    } else if (riskDrift <= -15) {
+      signals.push({
+        label: 'Baseline drift',
+        tone: 'good',
+        value: `${Math.round(riskDrift)} risk`,
+      })
+      anomalies.push({
+        kind: 'baseline_shift',
+        severity: 'low',
+        label: 'Risk below baseline',
+        summary: `Current advisory risk is ${Math.abs(Math.round(riskDrift))} points lower than the recent baseline.`,
+      })
+    }
+
+    if (confidenceDrift <= -12) {
+      confidencePct += 2
+      if (recommendation === 'continue') {
+        recommendation = 'investigate'
+      }
+      rationales.push(
+        `Advisor confidence is ${Math.abs(Math.round(confidenceDrift))} points below the recent baseline, so this rollout deserves closer human review.`,
+      )
+      anomalies.push({
+        kind: 'baseline_shift',
+        severity: 'medium',
+        label: 'Confidence below baseline',
+        summary: `Advisor confidence is ${Math.abs(Math.round(confidenceDrift))} points below the recent baseline.`,
+      })
+    }
+  }
+
   riskScore = clamp(riskScore, 4, 97)
   confidencePct = clamp(confidencePct, 28, 96)
 
@@ -255,6 +398,14 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
 
   const headline = buildHeadline(recommendation, severity)
   const summary = buildSummary(recommendation, severity, input.currentWeight, completedSatelliteTasks.length)
+  const prediction = buildPrediction({
+    recommendation,
+    riskScore,
+    currentWeight: input.currentWeight,
+    openIncidentCount: openIncidents.length,
+    noDataGateCount: noDataGates.length,
+    marginAlertCount: marginAlerts.length,
+  })
 
   return {
     mode: 'shadow',
@@ -267,6 +418,8 @@ export function buildAiAdvisor(input: AiAdvisorInput): AiAdvisor {
     summary,
     rationales: uniqueStrings(rationales).slice(0, 5),
     signals: signals.slice(0, 5),
+    anomalies: uniqueAnomalies(anomalies).slice(0, 4),
+    prediction,
   }
 }
 
@@ -315,8 +468,118 @@ function buildSummary(
   }
 }
 
+function buildPrediction(input: {
+  recommendation: AiAdvisor['recommendation']
+  riskScore: number
+  currentWeight: number
+  openIncidentCount: number
+  noDataGateCount: number
+  marginAlertCount: number
+}): AiAdvisorPrediction {
+  const rollbackProbabilityPct = clamp(
+    input.riskScore +
+      (input.recommendation === 'rollback' ? 10 : 0) +
+      (input.recommendation === 'pause' ? 6 : 0) +
+      (input.noDataGateCount > 0 ? 4 : 0),
+    5,
+    98,
+  )
+  const nextStepRiskPct = clamp(
+    input.riskScore +
+      (input.currentWeight >= 50 ? 8 : 3) +
+      input.marginAlertCount * 3 +
+      (input.openIncidentCount > 0 ? 6 : 0),
+    4,
+    97,
+  )
+
+  let predictedOutcome: AiAdvisorPrediction['predictedOutcome'] = 'watch'
+  switch (input.recommendation) {
+    case 'rollback':
+      predictedOutcome = 'rollback_expected'
+      break
+    case 'pause':
+      predictedOutcome = 'rollback_risk'
+      break
+    case 'collect_more_data':
+      predictedOutcome = 'awaiting_data'
+      break
+    case 'continue':
+      predictedOutcome = input.riskScore < 36 ? 'stable' : 'watch'
+      break
+    default:
+      predictedOutcome = input.riskScore >= 62 ? 'rollback_risk' : 'watch'
+      break
+  }
+
+  return {
+    predictedOutcome,
+    rollbackProbabilityPct,
+    nextStepRiskPct,
+    shouldEscalate: predictedOutcome === 'rollback_expected' || predictedOutcome === 'rollback_risk',
+  }
+}
+
+function thresholdMarginAlerts(gates: GateLike[]) {
+  return gates.filter((gate) => {
+    if (gate.passed !== true || typeof gate.value !== 'number' || !gate.threshold) {
+      return false
+    }
+
+    const max = typeof gate.threshold.max === 'number' ? gate.threshold.max : null
+    const min = typeof gate.threshold.min === 'number' ? gate.threshold.min : null
+    if (max !== null && max > 0 && gate.value / max >= 0.85) {
+      return true
+    }
+    if (min !== null && min > 0 && gate.value / min <= 1.15) {
+      return true
+    }
+    return false
+  })
+}
+
+function shadowBaselineFromMetadata(metadata: Record<string, unknown> | null | undefined) {
+  const candidate = metadata?.shadowBaseline
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return null
+  }
+
+  const record = candidate as Record<string, unknown>
+  const sampleCount = asNumber(record.sampleCount)
+  const avgRiskScore = asNumber(record.avgRiskScore)
+  const avgConfidencePct = asNumber(record.avgConfidencePct)
+  if (sampleCount === null || avgRiskScore === null || avgConfidencePct === null) {
+    return null
+  }
+
+  return {
+    sampleCount,
+    avgRiskScore,
+    avgConfidencePct,
+  }
+}
+
+function asNumber(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
+  }
+  return value
+}
+
 function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.filter((value) => value.trim() !== '')))
+}
+
+function uniqueAnomalies(values: AiAdvisorAnomaly[]) {
+  const seen = new Set<string>()
+  return values.filter((value) => {
+    const key = `${value.kind}:${value.label}:${value.summary}`
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -395,6 +395,14 @@ async function main() {
     rollout.aiAdvisor?.engine === 'fastapi-shadow-v1',
     `Expected delegated rollout to be advised by the external AI service, got ${rollout.aiAdvisor?.engine}`,
   )
+  assert(
+    typeof rollout.aiAdvisor?.prediction?.rollbackProbabilityPct === 'number',
+    'Expected delegated rollout to expose AI prediction probabilities',
+  )
+  assert(
+    typeof rollout.aiShadow?.review?.status === 'string',
+    'Expected delegated rollout to expose AI shadow review status',
+  )
 
   log(`Verified delegated reconcile via satellite ${satelliteName} for deployment ${deployment.id}`)
 }

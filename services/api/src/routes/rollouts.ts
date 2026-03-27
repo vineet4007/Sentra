@@ -1,6 +1,15 @@
 import { Router } from 'express'
 import type { RowDataPacket } from 'mysql2/promise'
 import { resolveAiAdvisors } from '../ai.js'
+import { buildCandidateAiAdvisor } from '../advisor-candidate.js'
+import {
+  buildAiAdvisorMetadata,
+  buildAiShadowBaseline,
+  buildAiShadowReview,
+  listAiAdvisoryHistory,
+  persistAiAdvisories,
+} from '../ai-shadow.js'
+import { buildAiAdvisor } from '../advisor.js'
 import { fromDbJson, queryRows, toIsoString, type SqlParam } from '../db.js'
 import { asyncHandler, ok, parseOptionalPositiveIntQuery } from '../http.js'
 import { getRolloutLiveStates, listRolloutLiveStates } from '../events.js'
@@ -206,6 +215,7 @@ r.get(
     const deploymentIds = deployments.map((deployment) => deployment.id)
     const liveStateByDeployment = await getRolloutLiveStates(deploymentIds)
     const placeholders = deploymentIds.map(() => '?').join(', ')
+    const priorAiAdvisoryHistoryByDeployment = await listAiAdvisoryHistory(deploymentIds)
 
     const stepRows = await queryRows<RolloutStepRow[]>(
       `SELECT
@@ -417,26 +427,83 @@ r.get(
       }
     })
 
-    const aiAdvisorByDeployment = await resolveAiAdvisors(
-      rolloutItems.map((rollout) => ({
-        deploymentId: rollout.id,
-        status: rollout.status,
-        currentWeight: rollout.currentWeight,
-        lastDecision: rollout.lastDecision,
-        lastDecisionReason: rollout.lastDecisionReason,
-        liveState: rollout.liveState,
-        incidents: rollout.incidents,
-        steps: rollout.steps,
-        auditEvents: rollout.auditEvents,
-        satelliteTasks: rollout.satelliteTasks,
+    const advisorContexts = rolloutItems.map((rollout) => ({
+      deploymentId: rollout.id,
+      status: rollout.status,
+      currentWeight: rollout.currentWeight,
+      lastDecision: rollout.lastDecision,
+      lastDecisionReason: rollout.lastDecisionReason,
+      liveState: rollout.liveState,
+      incidents: rollout.incidents,
+      steps: rollout.steps,
+      auditEvents: rollout.auditEvents,
+      satelliteTasks: rollout.satelliteTasks,
+      metadata: buildAiAdvisorMetadata(priorAiAdvisoryHistoryByDeployment.get(rollout.id) || []),
+    }))
+    const advisorContextByDeployment = new Map(advisorContexts.map((context) => [context.deploymentId, context]))
+    const aiAdvisorByDeployment = await resolveAiAdvisors(advisorContexts)
+    const aiAdvisories = advisorContexts.map((context) => ({
+      deploymentId: context.deploymentId,
+      advisor: aiAdvisorByDeployment.get(context.deploymentId) ?? buildAiAdvisor(context),
+    }))
+    await persistAiAdvisories(aiAdvisories)
+    await persistAiAdvisories(
+      aiAdvisories.map((item) => ({
+        deploymentId: item.deploymentId,
+        advisor: buildCandidateAiAdvisor(item.advisor),
       })),
+      { series: 'candidate' },
     )
+    const aiAdvisoryHistoryByDeployment = await listAiAdvisoryHistory(deploymentIds)
 
     ok(res, {
-      items: rolloutItems.map((rollout) => ({
-        ...rollout,
-        aiAdvisor: aiAdvisorByDeployment.get(rollout.id),
-      })),
+      items: rolloutItems.map((rollout) => {
+        const fallbackContext = advisorContextByDeployment.get(rollout.id)
+        const fallbackInput = fallbackContext
+          ? {
+              status: fallbackContext.status,
+              currentWeight: fallbackContext.currentWeight,
+              lastDecision: fallbackContext.lastDecision,
+              lastDecisionReason: fallbackContext.lastDecisionReason,
+              liveState: fallbackContext.liveState,
+              incidents: fallbackContext.incidents,
+              steps: fallbackContext.steps,
+              auditEvents: fallbackContext.auditEvents,
+              satelliteTasks: fallbackContext.satelliteTasks,
+              metadata: fallbackContext.metadata,
+            }
+          : {
+              status: rollout.status,
+              currentWeight: rollout.currentWeight,
+              lastDecision: rollout.lastDecision,
+              lastDecisionReason: rollout.lastDecisionReason,
+              liveState: rollout.liveState,
+              incidents: rollout.incidents,
+              steps: rollout.steps,
+              auditEvents: rollout.auditEvents,
+              satelliteTasks: rollout.satelliteTasks,
+              metadata: buildAiAdvisorMetadata(priorAiAdvisoryHistoryByDeployment.get(rollout.id) || []),
+            }
+        const aiAdvisor =
+          aiAdvisorByDeployment.get(rollout.id) ?? buildAiAdvisor(fallbackInput)
+        const aiHistory = aiAdvisoryHistoryByDeployment.get(rollout.id) || []
+
+        return {
+          ...rollout,
+          aiAdvisor,
+          aiShadow: {
+            history: aiHistory,
+            baseline: buildAiShadowBaseline(aiHistory, aiAdvisor),
+            review: buildAiShadowReview(
+              {
+                ...rollout,
+                aiAdvisor,
+              },
+              aiHistory,
+            ),
+          },
+        }
+      }),
       count: deployments.length,
     })
   }),

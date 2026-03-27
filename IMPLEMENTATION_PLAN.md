@@ -406,19 +406,30 @@ Validation notes:
 - [x] Added a packaged runtime overlay with restart policies and log rotation defaults
 - [x] Added production-oriented bundle env and install docs under `deploy/selfhosted/`
 - [x] Verified the packaging script produces a self-hosted archive that includes the install docs, runtime overlay, and core service sources
-- [x] Added an initial advisory-only AI shadow layer (`heuristic-v1`) that computes rollout risk, confidence, and recommendation hints from gates, incidents, audit history, and satellite task outcomes
-- [x] Verified integration and federation flows still pass with AI advisory output included in rollout responses
+- [x] Added an initial advisory-only AI shadow layer and moved it behind a separate FastAPI service (`fastapi-shadow-v1`) with local heuristic fallback
+- [x] Added structured AI anomaly summaries and shadow prediction fields such as `predictedOutcome`, `rollbackProbabilityPct`, and `nextStepRiskPct`
+- [x] Added persisted `ai_advisories` history plus rollout-level shadow scorecards so Sentra can compare AI warnings against real outcomes
+- [x] Added baseline-aware anomaly logic so the AI shadow layer can compare current rollout risk against recent advisory history instead of scoring each rollout in isolation
+- [x] Added a fleet-level `GET /ai/evaluation` summary plus dashboard scorecards so operators can measure AI shadow coverage, accuracy, recall, precision, and recent examples by service
+- [x] Added AI backtesting timeline buckets, calibration buckets, and engine scorecards so model quality can be tracked over time before any decision-support promotion
+- [x] Added persisted `primary` vs `candidate` advisory series plus side-by-side comparison metrics so new model variants can be evaluated on the same rollout set before any promotion
+- [x] Added `GET /ai/benchmark` plus exportable benchmark reports so candidate model promotion readiness is judged through explicit gates instead of ad-hoc dashboard reading
+- [x] Added `GET /ai/dataset` plus exportable labeled advisory rows so offline training and feature analysis can use stored rollout outcomes instead of live-only payloads
+- [x] Added a first offline candidate risk-profile workflow that reads the exported advisory dataset and writes reusable training artifacts under `reports/ai/models/`
+- [x] Wired the candidate advisory runtime to consume the trained risk-profile artifact through `services/api/config/ai/candidate-risk-profile.json`, creating a first profile-driven candidate model (`candidate-shadow-v3-profiled`)
+- [x] Added a repo-level version lock in `VERSION` plus a version-stamped regression suite under `reports/regression/`
+- [x] Verified integration and federation flows still pass with AI advisory, prediction, and shadow-review output included in rollout responses
 
 ## Recommended Current Focus
 
-Continue Step 10 with broader multi-cloud coverage, federated topology, and packaging.
+Continue Step 10 by improving model-version isolation and dataset quality now that offline learning, version locking, and regression runs are all in place.
 
 Why this is next:
 
 - Sentra now has the first complete local product loop: onboarding, decisioning, actioning, auditability, and UI.
-- The next missing layer is breadth: more adapters, stronger runtime auth, multi-cloud support, and the broader packaging and security model from the architecture docs.
-- Step 10 is where Sentra grows from one working control loop into the wider platform vision.
-- Future AI work should still stay behind the core platform expansion until enough real rollout history exists.
+- The platform breadth work is already much stronger than the original scaffold, and the biggest remaining Step 10 gap is AI maturity.
+- Sentra now stores shadow advisory history, scores AI warnings against rollout outcomes, exposes service-level evaluation summaries, backtesting buckets, calibration buckets, engine scorecards, primary-vs-candidate series comparisons, explicit benchmark readiness reports, labeled offline datasets, a profile-driven candidate runtime, and a versioned regression harness, which makes the next ML-oriented iteration much safer.
+- The next logical move is improving anomaly quality and prediction reliability further while keeping AI advisory-only, then isolating evaluations by model version so new candidate engines are judged against their own rollout windows before any limited decision support is justified.
 
 ## What Is Already True Today
 
@@ -444,17 +455,27 @@ AI should be part of Sentra, but not part of the first production-critical rollo
 
 ### What to do now
 
-- [ ] Store rollout history, telemetry snapshots, decisions, and outcomes in a structured way
-- [ ] Keep controller decisions explainable and rule-based
-- [ ] Define a clean interface where an AI service can later return risk scores, anomaly signals, or recommendations
-- [ ] Capture enough metadata to compare predicted outcomes against real outcomes later
+- [x] Store rollout history, telemetry snapshots, decisions, and outcomes in a structured way
+- [x] Keep controller decisions explainable and rule-based
+- [x] Define a clean interface where an AI service can later return risk scores, anomaly signals, or recommendations
+- [x] Capture enough metadata to compare predicted outcomes against real outcomes later
+- [x] Expose shadow accuracy, recall, precision, and noisy/missed examples in operator-facing views
+- [x] Expose backtesting and calibration views so model quality can be tracked over time instead of only per rollout
+- [x] Compare persisted model variants on the same rollout set before changing the production advisory stream
+- [x] Export repeatable benchmark reports so model-promotion decisions are documented and reviewable
+- [x] Export labeled advisory datasets so offline training and feature review can happen outside the live control loop
+- [x] Produce a first reusable offline training artifact from the stored advisory history
+- [x] Lock the current release version and run repeatable regression suites against that baseline
 
 ### What to do later
 
-- [ ] Add a separate Python FastAPI service for AI and ML features
-- [ ] Start with anomaly detection and risk scoring
-- [ ] Run AI in shadow mode first so it recommends actions without executing them
-- [ ] Compare AI recommendations against actual rollout outcomes
+- [x] Add a separate Python FastAPI service for AI and ML features
+- [x] Start with anomaly detection and risk scoring
+- [x] Run AI in shadow mode first so it recommends actions without executing them
+- [x] Compare AI recommendations against actual rollout outcomes
+- [ ] Improve dataset quality with more balanced real rollout outcomes instead of mostly synthetic verifier data
+- [ ] Train stronger candidate models from the exported datasets and compare them through the existing primary-vs-candidate pipeline
+- [ ] Separate benchmark and comparison views by candidate engine version so old `candidate-shadow-v2` history does not blur newer `candidate-shadow-v3-profiled` results
 - [ ] Promote AI from advisory mode to limited decision support only after it proves reliable
 - [ ] Consider advanced features later such as predictive rollback, canary tuning, and dynamic SLO suggestions
 

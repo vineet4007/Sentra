@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from .models import AiAdvisor, AiAdvisorSignal, RolloutAdvisorContext
+from .models import (
+    AiAdvisor,
+    AiAdvisorAnomaly,
+    AiAdvisorPrediction,
+    AiAdvisorSignal,
+    RolloutAdvisorContext,
+)
 
 
 def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
@@ -9,6 +15,7 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
     recommendation: str = "investigate"
     signals: list[AiAdvisorSignal] = []
     rationales: list[str] = []
+    anomalies: list[AiAdvisorAnomaly] = []
 
     open_incidents = [incident for incident in context.incidents if incident.status != "resolved"]
     critical_incidents = [incident for incident in open_incidents if incident.severity == "critical"]
@@ -22,6 +29,8 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
     failed_satellite_tasks = [task for task in context.satelliteTasks if task.status == "failed"]
     completed_steps = sum(1 for step in context.steps if step.status == "completed")
     total_steps = len(context.steps)
+    margin_alerts = threshold_margin_alerts(gate_results)
+    baseline = shadow_baseline_from_metadata(context.metadata)
 
     if critical_incidents:
         risk_score += 44 + min(len(critical_incidents) * 8, 22)
@@ -33,6 +42,14 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
         signals.append(
             AiAdvisorSignal(label="Incidents", tone="critical", value=f"{len(critical_incidents)} critical open")
         )
+        anomalies.append(
+            AiAdvisorAnomaly(
+                kind="incident_pressure",
+                severity="critical",
+                label="Critical incidents",
+                summary=f"{len(critical_incidents)} critical incident{' is' if len(critical_incidents) == 1 else 's are'} still open.",
+            )
+        )
     elif open_incidents:
         risk_score += 24 + min(len(open_incidents) * 4, 14)
         confidence_pct += 8
@@ -41,6 +58,14 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
             f"{len(open_incidents)} incident{' is' if len(open_incidents) == 1 else 's are'} still open and need attention."
         )
         signals.append(AiAdvisorSignal(label="Incidents", tone="warn", value=f"{len(open_incidents)} open"))
+        anomalies.append(
+            AiAdvisorAnomaly(
+                kind="incident_pressure",
+                severity="high",
+                label="Open incidents",
+                summary=f"{len(open_incidents)} incident{' is' if len(open_incidents) == 1 else 's are'} still active.",
+            )
+        )
     else:
         risk_score -= 7
         confidence_pct += 6
@@ -58,6 +83,14 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
                 label="Telemetry gates",
                 tone="critical",
                 value=f"{len(failing_gates) + len(severe_gates)} failing",
+            )
+        )
+        anomalies.append(
+            AiAdvisorAnomaly(
+                kind="telemetry_failure",
+                severity="critical" if severe_gates else "high",
+                label="Gate regressions",
+                summary=f"{len(failing_gates) + len(severe_gates)} telemetry gate{' is' if len(failing_gates) + len(severe_gates) == 1 else 's are'} failing or severe.",
             )
         )
     elif error_gates or no_data_gates:
@@ -79,6 +112,18 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
                 value=f"{len(error_gates)} backend issues" if error_gates else f"{len(no_data_gates)} no-data",
             )
         )
+        anomalies.append(
+            AiAdvisorAnomaly(
+                kind="telemetry_gap",
+                severity="high" if error_gates else "medium",
+                label="Telemetry backend errors" if error_gates else "Telemetry gaps",
+                summary=(
+                    f"{len(error_gates)} telemetry backend error{' is' if len(error_gates) == 1 else 's are'} lowering confidence."
+                    if error_gates
+                    else f"{len(no_data_gates)} rollout gate{' still has' if len(no_data_gates) == 1 else 's still have'} no signal."
+                ),
+            )
+        )
     elif passed_gates:
         risk_score -= 14 + min(len(passed_gates) * 3, 10)
         confidence_pct += 16
@@ -88,13 +133,20 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
             f"{len(passed_gates)} telemetry gate{' is' if len(passed_gates) == 1 else 's are'} currently healthy."
         )
         signals.append(AiAdvisorSignal(label="Telemetry gates", tone="good", value=f"{len(passed_gates)} passing"))
+        anomalies.append(
+            AiAdvisorAnomaly(
+                kind="healthy_progress",
+                severity="low",
+                label="Healthy telemetry",
+                summary=f"{len(passed_gates)} telemetry gate{' is' if len(passed_gates) == 1 else 's are'} within the configured threshold.",
+            )
+        )
     else:
         risk_score += 7
         recommendation = "collect_more_data"
         rationales.append("The rollout does not have enough evaluation history yet for a confident advisory signal.")
         signals.append(AiAdvisorSignal(label="Telemetry gates", tone="accent", value="awaiting data"))
 
-    margin_alerts = threshold_margin_alerts(gate_results)
     if margin_alerts:
         risk_score += min(12, len(margin_alerts) * 4)
         confidence_pct += 3
@@ -104,6 +156,14 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
             f"{len(margin_alerts)} gate{' is' if len(margin_alerts) == 1 else 's are'} close to the configured threshold, so promotion risk is rising."
         )
         signals.append(AiAdvisorSignal(label="Threshold margin", tone="warn", value="narrow"))
+        anomalies.append(
+            AiAdvisorAnomaly(
+                kind="threshold_margin",
+                severity="medium",
+                label="Narrow threshold margin",
+                summary=f"{len(margin_alerts)} passing gate{' is' if len(margin_alerts) == 1 else 's are'} close to the configured limit.",
+            )
+        )
 
     if failed_satellite_tasks:
         risk_score += 12 + len(failed_satellite_tasks) * 4
@@ -118,6 +178,14 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
                 label="Federation",
                 tone="warn",
                 value=f"{len(failed_satellite_tasks)} failed task{'s' if len(failed_satellite_tasks) != 1 else ''}",
+            )
+        )
+        anomalies.append(
+            AiAdvisorAnomaly(
+                kind="federation_failure",
+                severity="medium",
+                label="Federation task failures",
+                summary=f"{len(failed_satellite_tasks)} delegated task{' failed' if len(failed_satellite_tasks) == 1 else 's failed'} recently.",
             )
         )
     elif completed_satellite_tasks:
@@ -167,6 +235,53 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
     elif context.lastDecisionReason:
         rationales.append(f"Latest control-plane note: {context.lastDecisionReason}")
 
+    if baseline and baseline["sampleCount"] >= 3:
+        risk_drift = risk_score - baseline["avgRiskScore"]
+        confidence_drift = confidence_pct - baseline["avgConfidencePct"]
+        if risk_drift >= 18:
+            risk_score += 4
+            confidence_pct += 3
+            if recommendation == "continue":
+                recommendation = "investigate"
+            rationales.append(
+                f"Current risk is {round(risk_drift)} points above the recent advisory baseline, which suggests a fresh anomaly rather than normal rollout noise."
+            )
+            signals.append(AiAdvisorSignal(label="Baseline drift", tone="warn", value=f"+{round(risk_drift)} risk"))
+            anomalies.append(
+                AiAdvisorAnomaly(
+                    kind="baseline_shift",
+                    severity="high" if risk_drift >= 28 else "medium",
+                    label="Risk above baseline",
+                    summary=f"Current advisory risk is {round(risk_drift)} points above the recent baseline.",
+                )
+            )
+        elif risk_drift <= -15:
+            signals.append(AiAdvisorSignal(label="Baseline drift", tone="good", value=f"{round(risk_drift)} risk"))
+            anomalies.append(
+                AiAdvisorAnomaly(
+                    kind="baseline_shift",
+                    severity="low",
+                    label="Risk below baseline",
+                    summary=f"Current advisory risk is {abs(round(risk_drift))} points lower than the recent baseline.",
+                )
+            )
+
+        if confidence_drift <= -12:
+            confidence_pct += 2
+            if recommendation == "continue":
+                recommendation = "investigate"
+            rationales.append(
+                f"Advisor confidence is {abs(round(confidence_drift))} points below the recent baseline, so this rollout deserves closer human review."
+            )
+            anomalies.append(
+                AiAdvisorAnomaly(
+                    kind="baseline_shift",
+                    severity="medium",
+                    label="Confidence below baseline",
+                    summary=f"Advisor confidence is {abs(round(confidence_drift))} points below the recent baseline.",
+                )
+            )
+
     risk_score = clamp(risk_score, 4, 97)
     confidence_pct = clamp(confidence_pct, 28, 96)
 
@@ -178,6 +293,15 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
     elif risk_score >= 36:
         severity = "elevated"
 
+    prediction = build_prediction(
+        recommendation=recommendation,
+        risk_score=risk_score,
+        current_weight=context.currentWeight,
+        open_incident_count=len(open_incidents),
+        no_data_gate_count=len(no_data_gates),
+        margin_alert_count=len(margin_alerts),
+    )
+
     return AiAdvisor(
         recommendation=recommendation,  # type: ignore[arg-type]
         severity=severity,  # type: ignore[arg-type]
@@ -187,6 +311,8 @@ def build_ai_advisor(context: RolloutAdvisorContext) -> AiAdvisor:
         summary=build_summary(recommendation, severity, context.currentWeight, len(completed_satellite_tasks)),
         rationales=unique_non_empty(rationales)[:5],
         signals=signals[:5],
+        anomalies=unique_anomalies(anomalies)[:4],
+        prediction=prediction,
     )
 
 
@@ -204,6 +330,74 @@ def threshold_margin_alerts(gates):
         if gate_min is not None and gate_min > 0 and gate.value / gate_min <= 1.15:
             alerts.append(gate)
     return alerts
+
+
+def shadow_baseline_from_metadata(metadata):
+    if not metadata or not isinstance(metadata, dict):
+        return None
+
+    candidate = metadata.get("shadowBaseline")
+    if not candidate or not isinstance(candidate, dict):
+        return None
+
+    sample_count = candidate.get("sampleCount")
+    avg_risk_score = candidate.get("avgRiskScore")
+    avg_confidence_pct = candidate.get("avgConfidencePct")
+    if not isinstance(sample_count, (int, float)):
+        return None
+    if not isinstance(avg_risk_score, (int, float)):
+        return None
+    if not isinstance(avg_confidence_pct, (int, float)):
+        return None
+
+    return {
+        "sampleCount": sample_count,
+        "avgRiskScore": avg_risk_score,
+        "avgConfidencePct": avg_confidence_pct,
+    }
+
+
+def build_prediction(
+    *,
+    recommendation: str,
+    risk_score: int,
+    current_weight: int,
+    open_incident_count: int,
+    no_data_gate_count: int,
+    margin_alert_count: int,
+) -> AiAdvisorPrediction:
+    rollback_probability_pct = clamp(
+        risk_score
+        + (10 if recommendation == "rollback" else 0)
+        + (6 if recommendation == "pause" else 0)
+        + (4 if no_data_gate_count > 0 else 0),
+        5,
+        98,
+    )
+    next_step_risk_pct = clamp(
+        risk_score + (8 if current_weight >= 50 else 3) + margin_alert_count * 3 + (6 if open_incident_count > 0 else 0),
+        4,
+        97,
+    )
+
+    predicted_outcome = "watch"
+    if recommendation == "rollback":
+        predicted_outcome = "rollback_expected"
+    elif recommendation == "pause":
+        predicted_outcome = "rollback_risk"
+    elif recommendation == "collect_more_data":
+        predicted_outcome = "awaiting_data"
+    elif recommendation == "continue":
+        predicted_outcome = "stable" if risk_score < 36 else "watch"
+    elif risk_score >= 62:
+        predicted_outcome = "rollback_risk"
+
+    return AiAdvisorPrediction(
+        predictedOutcome=predicted_outcome,  # type: ignore[arg-type]
+        rollbackProbabilityPct=rollback_probability_pct,
+        nextStepRiskPct=next_step_risk_pct,
+        shouldEscalate=predicted_outcome in ("rollback_expected", "rollback_risk"),
+    )
 
 
 def build_headline(recommendation: str, severity: str) -> str:
@@ -261,6 +455,18 @@ def unique_non_empty(values: list[str]) -> list[str]:
         if normalized and normalized not in seen:
             seen.append(normalized)
     return seen
+
+
+def unique_anomalies(values: list[AiAdvisorAnomaly]) -> list[AiAdvisorAnomaly]:
+    seen: set[str] = set()
+    result: list[AiAdvisorAnomaly] = []
+    for value in values:
+        key = f"{value.kind}:{value.label}:{value.summary}"
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
 
 
 def clamp(value: int, low: int, high: int) -> int:

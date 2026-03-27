@@ -88,6 +88,27 @@ export type AiAdvisorSignal = {
   value: string
 }
 
+export type AiAdvisorAnomaly = {
+  kind:
+    | 'incident_pressure'
+    | 'telemetry_failure'
+    | 'telemetry_gap'
+    | 'threshold_margin'
+    | 'federation_failure'
+    | 'healthy_progress'
+    | 'baseline_shift'
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  label: string
+  summary: string
+}
+
+export type AiAdvisorPrediction = {
+  predictedOutcome: 'stable' | 'watch' | 'rollback_risk' | 'rollback_expected' | 'awaiting_data'
+  rollbackProbabilityPct: number
+  nextStepRiskPct: number
+  shouldEscalate: boolean
+}
+
 export type AiAdvisor = {
   mode: 'shadow'
   engine: string
@@ -99,6 +120,201 @@ export type AiAdvisor = {
   summary: string
   rationales: string[]
   signals: AiAdvisorSignal[]
+  anomalies: AiAdvisorAnomaly[]
+  prediction: AiAdvisorPrediction
+}
+
+export type AiAdvisoryHistoryEntry = {
+  id: number
+  deploymentId: number
+  engine: string
+  mode: string
+  recommendation: string
+  severity: string
+  predictedOutcome: AiAdvisorPrediction['predictedOutcome']
+  rollbackProbabilityPct: number
+  nextStepRiskPct: number
+  riskScore: number
+  confidencePct: number
+  summary: string
+  payload: Record<string, unknown> | null
+  createdAt: string | null
+}
+
+export type AiShadowReview = {
+  status: 'pending' | 'matched' | 'early_warning' | 'false_positive' | 'false_negative' | 'informational'
+  actualOutcome: 'running' | 'completed' | 'rolled_back' | 'paused' | 'degraded'
+  predictedOutcome: AiAdvisorPrediction['predictedOutcome']
+  summary: string
+  warningLeadSec: number | null
+  lastAdvisoryAt: string | null
+}
+
+export type AiShadowBaseline = {
+  sampleCount: number
+  avgRiskScore: number | null
+  avgRollbackProbabilityPct: number | null
+  avgConfidencePct: number | null
+  avgNextStepRiskPct: number | null
+  currentRiskDrift: number | null
+  currentRollbackDrift: number | null
+}
+
+export type AiShadow = {
+  history: AiAdvisoryHistoryEntry[]
+  baseline: AiShadowBaseline
+  review: AiShadowReview
+}
+
+export type AiShadowEvaluationOverview = {
+  candidateDeployments: number
+  evaluatedDeployments: number
+  coveragePct: number | null
+  resolvedReviews: number
+  matched: number
+  earlyWarnings: number
+  falsePositives: number
+  falseNegatives: number
+  informational: number
+  pending: number
+  accuracyPct: number | null
+  riskyOutcomeRecallPct: number | null
+  warningPrecisionPct: number | null
+  avgWarningLeadSec: number | null
+  avgRiskScore: number | null
+  avgConfidencePct: number | null
+  brierScore: number | null
+}
+
+export type AiShadowServiceSummary = {
+  serviceId: number
+  serviceName: string
+  deploymentCount: number
+  resolvedReviews: number
+  matched: number
+  earlyWarnings: number
+  falsePositives: number
+  falseNegatives: number
+  accuracyPct: number | null
+  riskyOutcomeRecallPct: number | null
+  warningPrecisionPct: number | null
+  avgWarningLeadSec: number | null
+  avgRiskScore: number | null
+  avgConfidencePct: number | null
+  latestAdvisoryAt: string | null
+}
+
+export type AiShadowEvaluationExample = {
+  deploymentId: number
+  serviceId: number
+  serviceName: string
+  environmentName: string
+  reviewStatus: AiShadowReview['status']
+  actualOutcome: AiShadowReview['actualOutcome']
+  predictedOutcome: AiAdvisorPrediction['predictedOutcome']
+  summary: string
+  warningLeadSec: number | null
+  riskScore: number
+  confidencePct: number
+  lastAdvisoryAt: string | null
+}
+
+export type AiShadowEvaluationTimelineBucket = {
+  bucketStartAt: string
+  bucketLabel: string
+  deploymentCount: number
+  resolvedReviews: number
+  matched: number
+  earlyWarnings: number
+  falsePositives: number
+  falseNegatives: number
+  accuracyPct: number | null
+  avgRiskScore: number | null
+}
+
+export type AiShadowCalibrationBucket = {
+  rangeLabel: string
+  minProbability: number
+  maxProbability: number
+  sampleCount: number
+  actualRiskRatePct: number | null
+  avgPredictedRollbackPct: number | null
+  avgConfidencePct: number | null
+}
+
+export type AiShadowEngineSummary = {
+  engine: string
+  deploymentCount: number
+  resolvedReviews: number
+  accuracyPct: number | null
+  riskyOutcomeRecallPct: number | null
+  warningPrecisionPct: number | null
+  brierScore: number | null
+  avgRiskScore: number | null
+  avgConfidencePct: number | null
+}
+
+export type AiShadowComparisonSeriesSummary = {
+  series: string
+  label: string
+  engine: string | null
+  evaluatedDeployments: number
+  resolvedReviews: number
+  accuracyPct: number | null
+  riskyOutcomeRecallPct: number | null
+  warningPrecisionPct: number | null
+  brierScore: number | null
+  avgRiskScore: number | null
+}
+
+export type AiShadowSeriesComparison = {
+  overlapDeployments: number
+  primary: AiShadowComparisonSeriesSummary
+  candidate: AiShadowComparisonSeriesSummary | null
+  deltas: {
+    accuracyPct: number | null
+    riskyOutcomeRecallPct: number | null
+    warningPrecisionPct: number | null
+    brierImprovement: number | null
+  }
+  winner: 'primary' | 'candidate' | 'tie' | 'insufficient_data'
+  summary: string
+}
+
+export type AiBenchmarkGate = {
+  key: string
+  label: string
+  passed: boolean
+  severity: 'warn' | 'critical'
+  actual: string
+  expected: string
+  summary: string
+}
+
+export type AiBenchmarkReport = {
+  generatedAt: string
+  recommendation: 'candidate_ready' | 'hold' | 'insufficient_data' | 'regression_risk'
+  summary: string
+  overlapDeployments: number
+  primary: AiShadowComparisonSeriesSummary
+  candidate: AiShadowComparisonSeriesSummary | null
+  deltas: AiShadowSeriesComparison['deltas']
+  gates: AiBenchmarkGate[]
+}
+
+export type AiBenchmarkEnvelope = {
+  report: AiBenchmarkReport
+  evaluation: AiShadowEvaluationSummary
+}
+
+export type AiShadowEvaluationSummary = {
+  overview: AiShadowEvaluationOverview
+  services: AiShadowServiceSummary[]
+  examples: AiShadowEvaluationExample[]
+  timeline: AiShadowEvaluationTimelineBucket[]
+  calibration: AiShadowCalibrationBucket[]
+  engines: AiShadowEngineSummary[]
+  comparison: AiShadowSeriesComparison | null
 }
 
 export type RolloutStep = {
@@ -252,6 +468,7 @@ export type Rollout = {
   auditEvents: AuditEvent[]
   satelliteTasks: SatelliteTask[]
   aiAdvisor: AiAdvisor
+  aiShadow: AiShadow
 }
 
 export type RolloutEvent = {
