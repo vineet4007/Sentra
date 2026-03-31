@@ -1,37 +1,37 @@
 # Candidate Risk Profile
 
-Generated: 2026-03-27T04:48:27.889Z
+Generated: 2026-03-27T06:08:14.692Z
 Release: 0.2.0-beta.1
 Dataset: /Users/vineetchauhan/Desktop/AshSan/Sentra/reports/ai/datasets/candidate-latest.jsonl
 
 ## Summary
 
-- Rows: 36
-- Resolved rows: 10
-- Risky rows: 10
+- Rows: 43
+- Resolved rows: 13
+- Risky rows: 13
 - Risky outcome rate: 100%
 
 ## Recommendation Risk
 
 | Key | Samples | Risky | Risk % |
 | --- | ---: | ---: | ---: |
-| rollback | 10 | 10 | 100 |
+| rollback | 13 | 13 | 100 |
 
 ## Predicted Outcome Risk
 
 | Key | Samples | Risky | Risk % |
 | --- | ---: | ---: | ---: |
-| rollback_expected | 10 | 10 | 100 |
+| rollback_expected | 13 | 13 | 100 |
 
 ## Severity Risk
 
 | Key | Samples | Risky | Risk % |
 | --- | ---: | ---: | ---: |
-| critical | 10 | 10 | 100 |
+| critical | 13 | 13 | 100 |
 
 ## Anomaly Kind Risk
 
 | Key | Samples | Risky | Risk % |
 | --- | ---: | ---: | ---: |
-| incident_pressure | 10 | 10 | 100 |
-| telemetry_failure | 10 | 10 | 100 |
+| incident_pressure | 13 | 13 | 100 |
+| telemetry_failure | 13 | 13 | 100 |

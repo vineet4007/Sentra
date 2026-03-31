@@ -14,6 +14,8 @@ make logs
 
 ## Configuration
 - `.env.example` contains working local defaults plus placeholders for future project, deployment, and telemetry integration.
+- First-time frontend walkthrough and glossary: [SENTRA_USER_GUIDE.md](/Users/vineetchauhan/Desktop/AshSan/Sentra/SENTRA_USER_GUIDE.md)
+- Rollback behavior and traffic-safety expectations: [ROLLBACK_SAFETY_POLICY.md](/Users/vineetchauhan/Desktop/AshSan/Sentra/ROLLBACK_SAFETY_POLICY.md)
 - Safe in local `.env`: service ports, local URLs, project names, service names, environment names, and dummy integration values.
 - Do not keep real cloud credentials, API keys, or tokens in Git. For shared or production setups, use a secret manager or workload identity instead.
 - Fresh local MySQL volumes will auto-run SQL files from `db/migrations/`. If the database already exists, run `make db-migrate` to apply schema changes to the running container.
@@ -42,6 +44,7 @@ Sentra's monitoring flow is intended to be:
 
 This repository now provides the local telemetry stack, project onboarding flow, rollout decision engine, and a first end-to-end reconcile loop for local Kubernetes-style traffic control.
 It also now includes a Next.js control-room UI for onboarding, live rollout visibility, audit trails, and SSE-driven updates.
+The default UI rollout posture now keeps a `5%` stable fallback floor, so first-time policies use `5,25,50,95` instead of draining stable traffic to zero during candidate testing.
 
 Step 4 adds controller-side telemetry readers and snapshot endpoints. The current telemetry contract is documented in [TELEMETRY_REQUIREMENTS.md](/Users/vineetchauhan/Desktop/AshSan/Sentra/TELEMETRY_REQUIREMENTS.md).
 
@@ -54,6 +57,7 @@ Current Step 3 API routes:
 - `GET /projects`
 - `GET /projects/:id`
 - `POST /projects`
+- `POST /projects/:id/services`
 - `POST /projects/onboard`
 - `GET /environments`
 - `PUT /environments/:id/integrations`
@@ -78,6 +82,9 @@ Current Step 9 frontend flow:
 
 - `/` shows the Sentra control room
 - onboarding form for project, target, telemetry, and rollout policy setup
+- onboarding defaults now keep a `5%` stable fallback floor and safer rollout steps `5,25,50,95`
+- project cards on `/` now link to `/projects/:id`, a dedicated workspace for that project
+- `/projects/:id` shows service inventory, environment inventory, environment integration editing, and a focused add-service flow for existing projects
 - rollout board with traffic progression, AI shadow advice, federation task context, incidents, and audit summaries
 - live SSE pulse powered through the web proxy at `/api/events`
 - `/rollouts/:id` shows a rollout detail view with step history, audit trail, incidents, and current action data
@@ -122,7 +129,7 @@ curl -X POST 'http://localhost:8090/rollouts/evaluate' \
   -d '{
     "labels": { "service": "payments-api", "environment": "staging", "version": "candidate" },
     "policy": {
-      "rolloutSteps": [5, 25, 50, 100],
+      "rolloutSteps": [5, 25, 50, 95],
       "evaluationWindowSec": 60,
       "pollIntervalSec": 5,
       "warmupSec": 30,
@@ -285,6 +292,11 @@ AI advisory note:
   make integration
   ```
 - `make integration` now also verifies that rollouts expose AI shadow advisor prediction and review output plus the fleet evaluation summary, backtesting buckets, calibration data, and primary-vs-candidate comparison data.
+- Run the multi-service verifier:
+  ```bash
+  make multiservice
+  ```
+- `make multiservice` provisions one project with multiple services sharing an environment and verifies that rollout state, AI evaluation, and dataset rows remain isolated per service.
 - Generate the offline AI benchmark report:
   ```bash
   make ai-benchmark
@@ -330,6 +342,7 @@ AI advisory note:
   ```bash
   make verify
   ```
+- `make verify` now includes smoke, single-service integration, multi-service integration, and federation coverage.
 - Build and lint the frontend directly:
   ```bash
   cd services/web && npm run lint && npm run build

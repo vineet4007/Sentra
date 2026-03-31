@@ -1,43 +1,43 @@
 {
-  "generatedAt": "2026-03-27T04:48:27.799Z",
+  "generatedAt": "2026-03-27T06:08:14.620Z",
   "primary": {
-    "generatedAt": "2026-03-27T04:48:27.784Z",
+    "generatedAt": "2026-03-27T06:08:14.602Z",
     "series": "primary",
-    "rowCount": 50,
-    "resolvedRows": 12,
-    "riskyRows": 12,
-    "riskyOutcomePct": 24,
+    "rowCount": 57,
+    "resolvedRows": 15,
+    "riskyRows": 15,
+    "riskyOutcomePct": 26.3,
     "engineBreakdown": {
-      "fastapi-shadow-v1": 50
+      "fastapi-shadow-v1": 57
     },
     "outcomeBreakdown": {
-      "running": 38,
-      "rolled_back": 12
+      "running": 42,
+      "rolled_back": 15
     },
     "reviewStatusBreakdown": {
-      "pending": 38,
-      "matched": 10,
+      "pending": 42,
+      "matched": 13,
       "false_negative": 2
     }
   },
   "candidate": {
-    "generatedAt": "2026-03-27T04:48:27.795Z",
+    "generatedAt": "2026-03-27T06:08:14.617Z",
     "series": "candidate",
-    "rowCount": 36,
-    "resolvedRows": 10,
-    "riskyRows": 10,
-    "riskyOutcomePct": 27.8,
+    "rowCount": 43,
+    "resolvedRows": 13,
+    "riskyRows": 13,
+    "riskyOutcomePct": 30.2,
     "engineBreakdown": {
-      "candidate-shadow-v3-profiled": 3,
+      "candidate-shadow-v3-profiled": 10,
       "candidate-shadow-v2": 33
     },
     "outcomeBreakdown": {
-      "running": 26,
-      "rolled_back": 10
+      "running": 30,
+      "rolled_back": 13
     },
     "reviewStatusBreakdown": {
-      "informational": 2,
-      "matched": 10,
+      "informational": 6,
+      "matched": 13,
       "pending": 24
     }
   },

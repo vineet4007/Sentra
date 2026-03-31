@@ -1,7 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import type { AiBenchmarkReport, AiShadowEvaluationSummary, Project, Rollout, Satellite } from '@/lib/types'
+import type {
+  AiBenchmarkReport,
+  AiShadowEvaluationSummary,
+  Project,
+  ProjectDetails,
+  Rollout,
+  Satellite,
+} from '@/lib/types'
 import { AiAdvisorPanel } from '@/components/ai-advisor-panel'
 import { AiBenchmarkPanel } from '@/components/ai-benchmark-panel'
 import { AiEvaluationPanel } from '@/components/ai-evaluation-panel'
@@ -12,6 +19,7 @@ import { StatusPill } from '@/components/status-pill'
 
 type DashboardShellProps = {
   projects: Project[]
+  projectDetails: ProjectDetails[]
   rollouts: Rollout[]
   satellites: Satellite[]
   aiEvaluation: AiShadowEvaluationSummary
@@ -47,7 +55,14 @@ function toneForSatellite(satellite: Satellite): 'neutral' | 'good' | 'warn' | '
   return 'accent'
 }
 
-export function DashboardShell({ projects, rollouts, satellites, aiEvaluation, aiBenchmark }: DashboardShellProps) {
+export function DashboardShell({
+  projects,
+  projectDetails,
+  rollouts,
+  satellites,
+  aiEvaluation,
+  aiBenchmark,
+}: DashboardShellProps) {
   const staleSatellites = satellites.filter((satellite) => satellite.stale).length
   const taskWorkers = satellites.filter((satellite) => satellite.capabilities?.taskWorker === true).length
   const delegatedRollouts = rollouts.filter((rollout) => rollout.satelliteTasks.length > 0).length
@@ -62,6 +77,7 @@ export function DashboardShell({ projects, rollouts, satellites, aiEvaluation, a
   const matchedShadowReviews = rollouts.filter((rollout) => rollout.aiShadow.review.status === 'matched').length
   const earlyWarnings = rollouts.filter((rollout) => rollout.aiShadow.review.status === 'early_warning').length
   const falsePositives = rollouts.filter((rollout) => rollout.aiShadow.review.status === 'false_positive').length
+  const projectDetailsById = new Map(projectDetails.map((details) => [details.project.id, details] as const))
 
   return (
     <main className="dashboard">
@@ -126,7 +142,7 @@ export function DashboardShell({ projects, rollouts, satellites, aiEvaluation, a
 
       <section className="dashboard-grid">
         <div className="dashboard-grid__left">
-          <OnboardingPanel projectCount={projects.length} />
+          <OnboardingPanel projectCount={projects.length} projectDetails={projectDetails} />
           {featuredAdvisor ? <AiAdvisorPanel advisor={featuredAdvisor} /> : null}
         </div>
 
@@ -146,10 +162,20 @@ export function DashboardShell({ projects, rollouts, satellites, aiEvaluation, a
                 <p className="muted">Use the onboarding form to connect the first project.</p>
               ) : (
                 projects.map((project) => (
-                  <article key={project.id} className="project-tile">
+                  <Link key={project.id} href={`/projects/${project.id}`} className="project-tile">
                     <strong>{project.name}</strong>
                     <span>{project.repoUrl || 'No repo URL provided'}</span>
-                  </article>
+                    <div className="project-tile__meta project-tile__meta--summary">
+                      <span>
+                        {projectDetailsById.get(project.id)?.services.length || 0} service
+                        {(projectDetailsById.get(project.id)?.services.length || 0) === 1 ? '' : 's'}
+                      </span>
+                      <span>
+                        {projectDetailsById.get(project.id)?.environments.length || 0} environment
+                        {(projectDetailsById.get(project.id)?.environments.length || 0) === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  </Link>
                 ))
               )}
             </div>

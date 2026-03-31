@@ -33,6 +33,7 @@ function toneForGateStatus(status?: string): 'neutral' | 'good' | 'warn' | 'crit
 
 export function RolloutCard({ rollout }: RolloutCardProps) {
   const liveDecision = rollout.liveState?.decision || rollout.lastDecision || rollout.status
+  const traffic = rollout.liveState?.traffic || rollout.traffic
   const gateResults = rollout.liveState?.evaluation?.gateResults || []
   const latestAudit = rollout.auditEvents[0]
 
@@ -48,8 +49,12 @@ export function RolloutCard({ rollout }: RolloutCardProps) {
 
       <div className="rollout-card__metrics">
         <div>
-          <span>Current traffic</span>
-          <strong>{rollout.currentWeight}%</strong>
+          <span>Candidate traffic</span>
+          <strong>{traffic.candidateWeight}%</strong>
+        </div>
+        <div>
+          <span>Stable fallback</span>
+          <strong>{traffic.stableWeight}%</strong>
         </div>
         <div>
           <span>Revision</span>
@@ -59,6 +64,11 @@ export function RolloutCard({ rollout }: RolloutCardProps) {
           <span>Incidents</span>
           <strong>{rollout.incidents.length}</strong>
         </div>
+      </div>
+
+      <div className={`traffic-note${traffic.recoveredToStable ? ' traffic-note--recovered' : ''}`}>
+        <strong>{traffic.recoveredToStable ? 'Stable restored' : 'Traffic posture'}</strong>
+        <span>{traffic.summary}</span>
       </div>
 
       <StepTrack steps={rollout.steps} />

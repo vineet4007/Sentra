@@ -1,32 +1,32 @@
 {
-  "generatedAt": "2026-03-27T04:48:27.889Z",
+  "generatedAt": "2026-03-27T06:08:14.692Z",
   "releaseVersion": "0.2.0-beta.1",
   "datasetPath": "/Users/vineetchauhan/Desktop/AshSan/Sentra/reports/ai/datasets/candidate-latest.jsonl",
-  "rowCount": 36,
-  "resolvedRowCount": 10,
-  "riskyRowCount": 10,
+  "rowCount": 43,
+  "resolvedRowCount": 13,
+  "riskyRowCount": 13,
   "riskyOutcomePct": 100,
   "recommendationRisk": [
     {
       "key": "rollback",
-      "sampleCount": 10,
-      "riskyCount": 10,
+      "sampleCount": 13,
+      "riskyCount": 13,
       "riskyOutcomePct": 100
     }
   ],
   "predictedOutcomeRisk": [
     {
       "key": "rollback_expected",
-      "sampleCount": 10,
-      "riskyCount": 10,
+      "sampleCount": 13,
+      "riskyCount": 13,
       "riskyOutcomePct": 100
     }
   ],
   "severityRisk": [
     {
       "key": "critical",
-      "sampleCount": 10,
-      "riskyCount": 10,
+      "sampleCount": 13,
+      "riskyCount": 13,
       "riskyOutcomePct": 100
     }
   ],
@@ -51,8 +51,8 @@
     },
     {
       "bucket": "75-100",
-      "sampleCount": 10,
-      "riskyCount": 10,
+      "sampleCount": 13,
+      "riskyCount": 13,
       "riskyOutcomePct": 100
     }
   ],
@@ -77,22 +77,22 @@
     },
     {
       "bucket": "75-100",
-      "sampleCount": 10,
-      "riskyCount": 10,
+      "sampleCount": 13,
+      "riskyCount": 13,
       "riskyOutcomePct": 100
     }
   ],
   "anomalyKindRisk": [
     {
       "key": "incident_pressure",
-      "sampleCount": 10,
-      "riskyCount": 10,
+      "sampleCount": 13,
+      "riskyCount": 13,
       "riskyOutcomePct": 100
     },
     {
       "key": "telemetry_failure",
-      "sampleCount": 10,
-      "riskyCount": 10,
+      "sampleCount": 13,
+      "riskyCount": 13,
       "riskyOutcomePct": 100
     }
   ]

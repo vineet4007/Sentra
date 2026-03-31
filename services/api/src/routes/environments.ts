@@ -19,6 +19,11 @@ import {
   redactSecretRefs,
   redactStoredConfig,
 } from '../security.js'
+import {
+  normalizeDeploymentTargetConfigSafety,
+  readStableTrafficFloorPct,
+  validateRolloutStepsAgainstStableFloor,
+} from '../rollout-safety.js'
 import { validateTelemetryConfig } from '../telemetry.js'
 
 const r = Router()
@@ -34,6 +39,10 @@ type EnvironmentRow = RowDataPacket & {
   secretRefs: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+type PolicyStepsRow = RowDataPacket & {
+  rolloutSteps: string
 }
 
 function mapEnvironmentRow(row: EnvironmentRow) {
@@ -129,7 +138,23 @@ r.put(
     }
 
     if (hasField(body, 'deploymentTargetConfig')) {
-      const deploymentTargetConfig = getOptionalJson(body, 'deploymentTargetConfig')
+      const deploymentTargetConfig = normalizeDeploymentTargetConfigSafety(
+        getOptionalJson(body, 'deploymentTargetConfig') as Record<string, unknown> | null,
+      )
+      const stableTrafficFloorPct = readStableTrafficFloorPct(deploymentTargetConfig)
+      const policyRows = await queryRows<PolicyStepsRow[]>(
+        `SELECT rollout_steps AS rolloutSteps
+         FROM policies
+         WHERE environment_id = ?`,
+        [environmentId],
+      )
+      for (const policyRow of policyRows) {
+        const rolloutSteps = fromDbJson<number[]>(policyRow.rolloutSteps)
+        if (!rolloutSteps) {
+          continue
+        }
+        validateRolloutStepsAgainstStableFloor(rolloutSteps, stableTrafficFloorPct)
+      }
       assertNoSensitiveKeys(deploymentTargetConfig, 'deploymentTargetConfig')
       updates.push('deployment_target_config = ?')
       params.push(toDbJson(deploymentTargetConfig))

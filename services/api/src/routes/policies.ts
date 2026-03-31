@@ -14,6 +14,10 @@ import {
   requireBodyObject,
   requireObjectField,
 } from '../http.js'
+import {
+  readStableTrafficFloorPct,
+  validateRolloutStepsAgainstStableFloor,
+} from '../rollout-safety.js'
 import { assertServiceEnvironmentTenantAccess, getRequestTenantKey } from '../security.js'
 
 const r = Router()
@@ -32,6 +36,10 @@ type PolicyRow = RowDataPacket & {
   enabled: number
   createdAt: Date
   updatedAt: Date
+}
+
+type EnvironmentConfigRow = RowDataPacket & {
+  deploymentTargetConfig: string | null
 }
 
 function normalizeRolloutSteps(values: unknown[]): number[] {
@@ -140,6 +148,23 @@ r.post(
 
     const saved = await withTransaction(async (connection) => {
       await assertServiceEnvironmentTenantAccess(connection, serviceId, environmentId, tenantKey)
+
+      const [environmentRows] = await connection.query<EnvironmentConfigRow[]>(
+        `SELECT deployment_target_config AS deploymentTargetConfig
+         FROM environments
+         WHERE id = ?
+         LIMIT 1`,
+        [environmentId],
+      )
+
+      if (environmentRows.length === 0) {
+        throw new ApiError(400, 'The selected environment does not exist')
+      }
+
+      const stableTrafficFloorPct = readStableTrafficFloorPct(
+        fromDbJson<Record<string, unknown>>(environmentRows[0].deploymentTargetConfig),
+      )
+      validateRolloutStepsAgainstStableFloor(rolloutSteps, stableTrafficFloorPct)
 
       const [existingRows] = await connection.query<RowDataPacket[]>(
         `SELECT id FROM policies WHERE service_id = ? AND environment_id = ?`,

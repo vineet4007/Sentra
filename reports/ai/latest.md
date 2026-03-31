@@ -1,13 +1,13 @@
 # Sentra AI Benchmark Report
 
-Generated: 2026-03-27T04:48:27.717Z
+Generated: 2026-03-27T06:08:14.534Z
 Recommendation: candidate_ready
 
 The candidate model has enough shared outcomes and is meeting the benchmark gates, so it is ready for a controlled shadow promotion review.
 
 ## Comparison
 
-- Overlapping rollouts: 32
+- Overlapping rollouts: 39
 - Primary engine: fastapi-shadow-v1
 - Candidate engine: mixed
 - Accuracy delta: 0%
@@ -17,8 +17,8 @@ The candidate model has enough shared outcomes and is meeting the benchmark gate
 
 ## Gates
 
-- [x] Enough overlapping rollouts: actual 32, expected >= 10. The candidate model should be compared on a meaningful number of shared rollouts before any promotion.
-- [x] Enough resolved rollout outcomes: actual 10, expected >= 5. A promotion decision needs enough completed or rolled-back examples to avoid overfitting on in-flight rollouts.
+- [x] Enough overlapping rollouts: actual 39, expected >= 10. The candidate model should be compared on a meaningful number of shared rollouts before any promotion.
+- [x] Enough resolved rollout outcomes: actual 13, expected >= 5. A promotion decision needs enough completed or rolled-back examples to avoid overfitting on in-flight rollouts.
 - [x] Candidate accuracy holds up: actual 100%, expected >= 98%. The candidate should not materially reduce overall shadow accuracy.
 - [x] Candidate risky-outcome recall is not worse: actual 100%, expected >= 100%. The candidate must not miss more real rollout risk than the current production shadow stream.
 - [x] Candidate warning precision stays acceptable: actual 100%, expected >= 95%. The candidate should not introduce too many noisy warnings.
@@ -26,7 +26,7 @@ The candidate model has enough shared outcomes and is meeting the benchmark gate
 
 ## Evaluation Snapshot
 
-- Coverage: 84.2%
+- Coverage: 86.7%
 - Accuracy: 100%
 - Risky-outcome recall: 100%
 - Warning precision: 100%

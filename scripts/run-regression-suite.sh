@@ -44,6 +44,7 @@ run_step() {
 run_step ai-test docker compose run --rm --no-deps ai python -m unittest discover -s tests
 run_step smoke bash scripts/smoke-local-stack.sh
 run_step integration node scripts/verify-rollout-flow.mjs
+run_step multiservice node scripts/verify-multi-service-flow.mjs
 run_step federation bash scripts/verify-federation-flow.sh
 run_step ai-benchmark node scripts/generate-ai-benchmark-report.mjs
 run_step ai-dataset node scripts/export-ai-training-dataset.mjs

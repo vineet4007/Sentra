@@ -570,6 +570,23 @@ select {
   gap: 16px;
 }
 
+.stacked-forms {
+  display: grid;
+  gap: 24px;
+}
+
+.form-section-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.form-section-head h3 {
+  margin: 0;
+  line-height: 1.2;
+}
+
 .form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -588,6 +605,7 @@ select {
 }
 
 .control-form input,
+.control-form select,
 .delegate-field select {
   width: 100%;
   padding: 14px 16px;
@@ -598,9 +616,15 @@ select {
 }
 
 .control-form input:focus,
+.control-form select:focus,
 .delegate-field select:focus {
   outline: 2px solid rgba(14, 91, 143, 0.24);
   border-color: rgba(14, 91, 143, 0.32);
+}
+
+.control-form--secondary {
+  padding-top: 22px;
+  border-top: 1px dashed rgba(14, 91, 143, 0.18);
 }
 
 .form-callout {
@@ -841,6 +865,7 @@ code {
 .incident-card,
 .timeline__item,
 .event-row,
+.traffic-note,
 .advisor-signal,
 .advisor-rationale__item,
 .capability-card {
@@ -955,6 +980,32 @@ code {
   color: var(--critical);
 }
 
+.traffic-note {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(14, 91, 143, 0.14);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.traffic-note strong {
+  font-size: 0.95rem;
+}
+
+.traffic-note span {
+  color: var(--muted);
+}
+
+.traffic-note--detail {
+  margin-bottom: 16px;
+}
+
+.traffic-note--recovered {
+  border-color: rgba(21, 115, 71, 0.22);
+  background: linear-gradient(145deg, rgba(21, 115, 71, 0.08), rgba(255, 255, 255, 0.84));
+}
+
 .detail-header {
   display: flex;
   justify-content: space-between;
@@ -972,9 +1023,19 @@ code {
     var(--surface);
 }
 
+.detail-header--project {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.52), rgba(255, 214, 130, 0.22)),
+    var(--surface);
+}
+
 .detail-main,
 .detail-side {
   align-content: start;
+}
+
+.detail-grid--project {
+  align-items: start;
 }
 
 .detail-metrics {

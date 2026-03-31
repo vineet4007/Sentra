@@ -418,6 +418,7 @@ Validation notes:
 - [x] Added a first offline candidate risk-profile workflow that reads the exported advisory dataset and writes reusable training artifacts under `reports/ai/models/`
 - [x] Wired the candidate advisory runtime to consume the trained risk-profile artifact through `services/api/config/ai/candidate-risk-profile.json`, creating a first profile-driven candidate model (`candidate-shadow-v3-profiled`)
 - [x] Added a repo-level version lock in `VERSION` plus a version-stamped regression suite under `reports/regression/`
+- [x] Added project-level multi-service coverage through `POST /projects/:id/services` plus a verifier that proves two services can share one environment while keeping rollouts, AI scorecards, and dataset rows isolated
 - [x] Verified integration and federation flows still pass with AI advisory, prediction, and shadow-review output included in rollout responses
 
 ## Recommended Current Focus
@@ -478,6 +479,8 @@ AI should be part of Sentra, but not part of the first production-critical rollo
 - [ ] Separate benchmark and comparison views by candidate engine version so old `candidate-shadow-v2` history does not blur newer `candidate-shadow-v3-profiled` results
 - [ ] Promote AI from advisory mode to limited decision support only after it proves reliable
 - [ ] Consider advanced features later such as predictive rollback, canary tuning, and dynamic SLO suggestions
+- [x] Surface explicit stable-vs-candidate traffic state and stable fallback posture in API and UI rollout views
+- [ ] Add remaining rollout hardening for rollback safety, including stable-capacity checks, enforced fallback headroom, and connection-draining support
 
 ### Why this is the right order
 

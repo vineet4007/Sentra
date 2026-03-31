@@ -767,7 +767,7 @@ func summarizeAdapterAction(intent rolloutActionIntent, target adapterRuntimeTar
 		)
 	case intent.Decision == decisionRollback:
 		return fmt.Sprintf(
-			"Rolled %s/%s back from %d%% to %d%% canary traffic.",
+			"Rolled %s/%s back from %d%% to %d%% canary traffic. Stable traffic now serves 100%%.",
 			target.Namespace,
 			target.Deployment,
 			intent.FromWeight,
@@ -829,7 +829,7 @@ func summarizeCloudRunAction(intent rolloutActionIntent, target adapterRuntimeTa
 		)
 	case intent.Decision == decisionRollback:
 		return fmt.Sprintf(
-			"Rolled Cloud Run service %s in %s back to stable revision %s.",
+			"Rolled Cloud Run service %s in %s back to stable revision %s. Stable traffic now serves 100%%.",
 			target.ServiceName,
 			target.Region,
 			target.StableRevision,
@@ -888,7 +888,7 @@ func summarizeLambdaAction(intent rolloutActionIntent, target adapterRuntimeTarg
 		)
 	case intent.Decision == decisionRollback:
 		return fmt.Sprintf(
-			"Rolled Lambda alias %s for %s in %s back to stable version %s.",
+			"Rolled Lambda alias %s for %s in %s back to stable version %s. Stable traffic now serves 100%%.",
 			target.AliasName,
 			target.FunctionName,
 			target.Region,
@@ -949,7 +949,7 @@ func summarizeContainerAppsAction(intent rolloutActionIntent, target adapterRunt
 		)
 	case intent.Decision == decisionRollback:
 		return fmt.Sprintf(
-			"Rolled Azure Container App %s in %s back to stable revision %s.",
+			"Rolled Azure Container App %s in %s back to stable revision %s. Stable traffic now serves 100%%.",
 			target.ContainerAppName,
 			target.ResourceGroup,
 			target.StableRevision,

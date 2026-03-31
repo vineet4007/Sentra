@@ -1,20 +1,20 @@
 # Sentra AI Training Dataset
 
-Generated: 2026-03-27T04:48:27.799Z
+Generated: 2026-03-27T06:08:14.620Z
 
 ## Primary
 
-- Rows: 50
-- Resolved rows: 12
-- Risky rows: 12
-- Risky outcome rate: 24%
+- Rows: 57
+- Resolved rows: 15
+- Risky rows: 15
+- Risky outcome rate: 26.3%
 
 ## Candidate
 
-- Rows: 36
-- Resolved rows: 10
-- Risky rows: 10
-- Risky outcome rate: 27.8%
+- Rows: 43
+- Resolved rows: 13
+- Risky rows: 13
+- Risky outcome rate: 30.2%
 
 ## Schema
 

@@ -30,6 +30,7 @@ function toneForDecision(decision?: string | null): 'neutral' | 'good' | 'warn' 
 
 export function RolloutDetailView({ rollout, satellites }: RolloutDetailViewProps) {
   const liveDecision = rollout.liveState?.decision || rollout.lastDecision || rollout.status
+  const traffic = rollout.liveState?.traffic || rollout.traffic
   const gateResults = rollout.liveState?.evaluation?.gateResults || []
   const telemetryWindow = rollout.liveState?.evaluation?.telemetrySnapshot?.window
 
@@ -46,7 +47,8 @@ export function RolloutDetailView({ rollout, satellites }: RolloutDetailViewProp
         </div>
         <div className="detail-header__stack">
           <StatusPill label={liveDecision || 'idle'} tone={toneForDecision(liveDecision)} />
-          <StatusPill label={`${rollout.currentWeight}% live`} tone="accent" />
+          <StatusPill label={`${traffic.candidateWeight}% candidate`} tone="accent" />
+          <StatusPill label={`${traffic.stableWeight}% stable`} tone={traffic.recoveredToStable ? 'good' : 'neutral'} />
         </div>
       </section>
 
@@ -60,15 +62,27 @@ export function RolloutDetailView({ rollout, satellites }: RolloutDetailViewProp
               <div>
                 <p className="eyebrow">Rollout shape</p>
                 <h2>
-                  {rollout.currentWeight}% traffic on {rollout.revision}
+                  {traffic.candidateWeight}% candidate / {traffic.stableWeight}% stable
                 </h2>
               </div>
             </header>
+            <div className={`traffic-note traffic-note--detail${traffic.recoveredToStable ? ' traffic-note--recovered' : ''}`}>
+              <strong>{traffic.recoveredToStable ? 'Stable restored' : 'Traffic posture'}</strong>
+              <span>{traffic.summary}</span>
+            </div>
             <StepTrack steps={rollout.steps} />
             <div className="detail-metrics">
               <article>
                 <span>Status</span>
                 <strong>{rollout.status}</strong>
+              </article>
+              <article>
+                <span>Candidate</span>
+                <strong>{traffic.candidateWeight}%</strong>
+              </article>
+              <article>
+                <span>Stable</span>
+                <strong>{traffic.stableWeight}%</strong>
               </article>
               <article>
                 <span>Started</span>

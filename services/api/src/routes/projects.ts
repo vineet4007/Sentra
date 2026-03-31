@@ -21,6 +21,7 @@ import {
   redactSecretRefs,
   redactStoredConfig,
 } from '../security.js'
+import { normalizeDeploymentTargetConfigSafety } from '../rollout-safety.js'
 import { validateTelemetryConfig } from '../telemetry.js'
 
 const r = Router()
@@ -236,6 +237,51 @@ r.post(
 )
 
 r.post(
+  '/:id/services',
+  asyncHandler(async (req, res) => {
+    const projectId = parsePositiveInt(req.params.id, 'projectId')
+    const tenantKey = getRequestTenantKey(req)
+    await assertProjectTenantAccess(projectId, tenantKey)
+
+    const body = requireBodyObject(req.body)
+    const serviceName = getRequiredString(body, 'name')
+    const adapterType = getOptionalString(body, 'adapterType') || 'kubernetes'
+    const serviceConfig = getOptionalObject(body, 'serviceConfig')
+    assertNoSensitiveKeys(serviceConfig, 'serviceConfig')
+
+    const created = await withTransaction(async (connection) => {
+      const [insertResult] = await connection.execute<ResultSetHeader>(
+        `INSERT INTO services (project_id, name, adapter_type, service_config)
+         VALUES (?, ?, ?, ?)`,
+        [projectId, serviceName, adapterType, toDbJson(serviceConfig)],
+      )
+
+      const [rows] = await connection.query<ServiceRow[]>(
+        `SELECT
+           id,
+           project_id AS projectId,
+           name,
+           adapter_type AS adapterType,
+           service_config AS serviceConfig,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+         FROM services
+         WHERE id = ?`,
+        [insertResult.insertId],
+      )
+
+      if (rows.length === 0) {
+        throw new ApiError(500, 'Failed to load created service')
+      }
+
+      return mapServiceRow(rows[0])
+    })
+
+    ok(res, { service: created }, 201)
+  }),
+)
+
+r.post(
   '/onboard',
   asyncHandler(async (req, res) => {
     const body = requireBodyObject(req.body)
@@ -257,7 +303,9 @@ r.post(
     const environmentName = getRequiredString(environmentInput, 'name')
     const deploymentTargetType =
       getOptionalString(environmentInput, 'deploymentTargetType') || 'kubernetes'
-    const deploymentTargetConfig = getOptionalObject(environmentInput, 'deploymentTargetConfig')
+    const deploymentTargetConfig = normalizeDeploymentTargetConfigSafety(
+      getOptionalObject(environmentInput, 'deploymentTargetConfig'),
+    )
     const telemetrySourceConfig = getOptionalObject(environmentInput, 'telemetrySourceConfig')
     const telemetryLabelMap = getOptionalObject(environmentInput, 'telemetryLabelMap')
     const secretRefs = getOptionalObject(environmentInput, 'secretRefs')

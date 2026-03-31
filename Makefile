@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs build fmt lint ci db-migrate smoke integration federation verify regression package ai-test ai-benchmark ai-dataset ai-train-profile
+.PHONY: up down logs build fmt lint ci db-migrate smoke integration multiservice federation verify regression package ai-test ai-benchmark ai-dataset ai-train-profile
 
 up:
 	docker compose up -d --build
@@ -44,10 +44,13 @@ smoke:
 integration:
 	node scripts/verify-rollout-flow.mjs
 
+multiservice:
+	node scripts/verify-multi-service-flow.mjs
+
 federation:
 	bash scripts/verify-federation-flow.sh
 
-verify: smoke integration federation
+verify: smoke integration multiservice federation
 
 regression:
 	bash scripts/run-regression-suite.sh

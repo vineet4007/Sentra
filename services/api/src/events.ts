@@ -18,6 +18,7 @@ export type RolloutLiveState = {
   rolloutStepId?: number
   decision: string
   summary: string
+  traffic?: Record<string, unknown>
   labels?: Record<string, unknown>
   labelMap?: Record<string, unknown>
   evaluation?: Record<string, unknown>

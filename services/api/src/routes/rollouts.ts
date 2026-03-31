@@ -107,6 +107,121 @@ type SatelliteTaskRow = RowDataPacket & {
   updatedAt: Date
 }
 
+type RolloutTrafficState = {
+  candidateWeight: number
+  stableWeight: number
+  state: string
+  recoveredToStable: boolean
+  summary: string
+}
+
+function clampTrafficWeight(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  if (value < 0) return 0
+  if (value > 100) return 100
+  return Math.round(value)
+}
+
+function parseTrafficState(value: unknown): RolloutTrafficState | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const candidateWeight = clampTrafficWeight(Number((value as Record<string, unknown>).candidateWeight))
+  const stableWeight = clampTrafficWeight(Number((value as Record<string, unknown>).stableWeight))
+  const state = typeof (value as Record<string, unknown>).state === 'string' ? String((value as Record<string, unknown>).state) : ''
+  const summary =
+    typeof (value as Record<string, unknown>).summary === 'string'
+      ? String((value as Record<string, unknown>).summary)
+      : ''
+  const recoveredToStable = (value as Record<string, unknown>).recoveredToStable === true
+
+  if (!state || !summary) {
+    return null
+  }
+
+  return {
+    candidateWeight,
+    stableWeight,
+    state,
+    recoveredToStable,
+    summary,
+  }
+}
+
+function deriveTrafficState(
+  candidateWeight: number,
+  decision: string | null,
+  rolloutComplete: boolean,
+): RolloutTrafficState {
+  const normalizedCandidateWeight = clampTrafficWeight(candidateWeight)
+  const normalizedDecision = String(decision || '').toLowerCase()
+
+  if (normalizedDecision === 'rollback') {
+    return {
+      candidateWeight: 0,
+      stableWeight: 100,
+      state: 'stable_restored',
+      recoveredToStable: true,
+      summary: 'Stable is serving 100% again while the candidate stays out of traffic.',
+    }
+  }
+
+  if (rolloutComplete || normalizedCandidateWeight >= 100) {
+    return {
+      candidateWeight: 100,
+      stableWeight: 0,
+      state: 'candidate_full',
+      recoveredToStable: false,
+      summary: 'The candidate is now serving 100% of live traffic.',
+    }
+  }
+
+  if (normalizedCandidateWeight <= 0) {
+    return {
+      candidateWeight: 0,
+      stableWeight: 100,
+      state: 'stable_only',
+      recoveredToStable: false,
+      summary: 'Stable is serving 100% while the candidate is waiting for traffic.',
+    }
+  }
+
+  return {
+    candidateWeight: normalizedCandidateWeight,
+    stableWeight: 100 - normalizedCandidateWeight,
+    state: 'split',
+    recoveredToStable: false,
+    summary: `Candidate is serving ${normalizedCandidateWeight}% while stable keeps ${100 - normalizedCandidateWeight}% of live traffic.`,
+  }
+}
+
+function buildRolloutTrafficState(
+  currentWeight: number,
+  status: string,
+  lastDecision: string | null,
+  liveState: Record<string, unknown> | null,
+): RolloutTrafficState {
+  const explicitTraffic = parseTrafficState(liveState?.traffic)
+  if (explicitTraffic) {
+    return explicitTraffic
+  }
+
+  const liveAction = liveState?.action
+  const actionToWeight =
+    liveAction && typeof liveAction === 'object' && Number.isFinite(Number((liveAction as Record<string, unknown>).toWeight))
+      ? Number((liveAction as Record<string, unknown>).toWeight)
+      : null
+  const liveDecision =
+    typeof liveState?.decision === 'string' && liveState.decision.trim() !== ''
+      ? liveState.decision
+      : lastDecision
+
+  return deriveTrafficState(actionToWeight ?? currentWeight, liveDecision, status === 'completed')
+}
+
 r.get(
   '/live',
   asyncHandler(async (req, res) => {
@@ -337,6 +452,12 @@ r.get(
 
     const rolloutItems = deployments.map((deployment) => {
       const liveState = liveStateByDeployment.get(deployment.id) || null
+      const traffic = buildRolloutTrafficState(
+        deployment.currentWeight,
+        deployment.status,
+        deployment.lastDecision,
+        liveState as Record<string, unknown> | null,
+      )
       const steps = (stepsByDeployment.get(deployment.id) || []).map((step) => ({
         id: step.id,
         deploymentId: step.deploymentId,
@@ -413,6 +534,7 @@ r.get(
           fromDbJson<Record<string, unknown>>(deployment.deploymentMetadata),
         ),
         currentWeight: deployment.currentWeight,
+        traffic,
         lastDecision: deployment.lastDecision,
         lastDecisionReason: deployment.lastDecisionReason,
         startedAt: toIsoString(deployment.startedAt),

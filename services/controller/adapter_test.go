@@ -39,6 +39,40 @@ func TestKubernetesAdapterSimulationPromote(t *testing.T) {
 	}
 }
 
+func TestKubernetesAdapterSimulationRollbackDropsCandidateTraffic(t *testing.T) {
+	adapter := newKubernetesTrafficAdapter(controllerConfig{})
+	target := adapterRuntimeTarget{
+		Namespace:  "payments",
+		Deployment: "payments-api",
+		Workload:   "payments-api",
+		Strategy:   "canary",
+		Mode:       "simulation",
+	}
+	intent := rolloutActionIntent{
+		Decision:   decisionRollback,
+		FromWeight: 25,
+		ToWeight:   0,
+	}
+
+	action, err := adapter.Apply(context.Background(), target, intent)
+	if err != nil {
+		t.Fatalf("expected rollback to succeed, got error: %v", err)
+	}
+
+	if !action.Applied {
+		t.Fatalf("expected rollback action to be marked applied")
+	}
+	if action.ToWeight != 0 {
+		t.Fatalf("expected candidate traffic to drop to 0, got %d", action.ToWeight)
+	}
+	if action.Type != "rollback" {
+		t.Fatalf("expected rollback action type, got %q", action.Type)
+	}
+	if !strings.Contains(strings.ToLower(action.Summary), "rolled") {
+		t.Fatalf("expected rollback summary, got %q", action.Summary)
+	}
+}
+
 func TestKubernetesAdapterKubectlModeRequiresExplicitOptIn(t *testing.T) {
 	adapter := newKubernetesTrafficAdapter(controllerConfig{})
 	target := adapterRuntimeTarget{
@@ -288,6 +322,23 @@ func TestCloudRunAdapterRequiresStableRevisionForWeightedTraffic(t *testing.T) {
 	}
 }
 
+func TestCloudRunTrafficAssignmentsRollbackToStableRevision(t *testing.T) {
+	assignments, err := cloudRunTrafficAssignments(adapterRuntimeTarget{
+		StableRevision: "payments-api-stable",
+	}, rolloutActionIntent{
+		Decision: decisionRollback,
+		Revision: "payments-api-canary",
+	})
+	if err != nil {
+		t.Fatalf("expected Cloud Run rollback assignments, got %v", err)
+	}
+
+	want := []string{"payments-api-stable=100"}
+	if !reflect.DeepEqual(assignments, want) {
+		t.Fatalf("unexpected Cloud Run rollback assignments: got %#v want %#v", assignments, want)
+	}
+}
+
 func TestLambdaAdapterSimulationPromote(t *testing.T) {
 	adapter := newLambdaAliasAdapter(controllerConfig{})
 	target := adapterRuntimeTarget{
@@ -424,6 +475,28 @@ func TestLambdaAdapterRequiresStableVersionForWeightedTraffic(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "stableVersion") {
 		t.Fatalf("expected stable version error, got %v", err)
+	}
+}
+
+func TestLambdaAliasRoutingStateRollbackToStableVersion(t *testing.T) {
+	state, err := lambdaAliasRoutingState(adapterRuntimeTarget{
+		StableVersion: "41",
+	}, rolloutActionIntent{
+		Decision: decisionRollback,
+		Revision: "42",
+	})
+	if err != nil {
+		t.Fatalf("expected Lambda rollback routing state, got %v", err)
+	}
+
+	functionVersion, _ := state["functionVersion"].(string)
+	if functionVersion != "41" {
+		t.Fatalf("expected stable function version 41, got %q", functionVersion)
+	}
+
+	additional, _ := state["additionalVersionWeights"].(map[string]float64)
+	if len(additional) != 0 {
+		t.Fatalf("expected rollback to clear canary weights, got %#v", additional)
 	}
 }
 
@@ -573,6 +646,23 @@ func TestContainerAppsAdapterAZCLIModeBuildsTrafficCommand(t *testing.T) {
 	}
 	if action.Mode != "azcli" {
 		t.Fatalf("expected azcli mode, got %q", action.Mode)
+	}
+}
+
+func TestContainerAppsTrafficAssignmentsRollbackToStableRevision(t *testing.T) {
+	assignments, err := containerAppsTrafficAssignments(adapterRuntimeTarget{
+		StableRevision: "payments-api--stable",
+	}, rolloutActionIntent{
+		Decision: decisionRollback,
+		Revision: "payments-api--candidate",
+	})
+	if err != nil {
+		t.Fatalf("expected Container Apps rollback assignments, got %v", err)
+	}
+
+	want := []string{"payments-api--stable=100"}
+	if !reflect.DeepEqual(assignments, want) {
+		t.Fatalf("unexpected Container Apps rollback assignments: got %#v want %#v", assignments, want)
 	}
 }
 

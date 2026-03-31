@@ -37,6 +37,7 @@ type deploymentRuntime struct {
 	Revision           string     `json:"revision"`
 	Status             string     `json:"status"`
 	CurrentWeight      int        `json:"currentWeight"`
+	Traffic            rolloutTrafficState `json:"traffic"`
 	LastDecision       string     `json:"lastDecision"`
 	LastDecisionReason string     `json:"lastDecisionReason"`
 	CurrentStepIndex   int        `json:"currentStepIndex"`
@@ -204,6 +205,7 @@ func (r *rolloutReconciler) reconcile(
 			LabelMap:      labelMap,
 			Decision:      decisionInitialize,
 			Summary:       deploymentSummary,
+			Traffic:       deriveTrafficState(currentStep.TargetWeight, decisionInitialize, false),
 			Action:        &action,
 		})
 
@@ -217,6 +219,7 @@ func (r *rolloutReconciler) reconcile(
 				Revision:           execution.Deployment.Revision,
 				Status:             "running",
 				CurrentWeight:      currentStep.TargetWeight,
+				Traffic:            deriveTrafficState(currentStep.TargetWeight, decisionInitialize, false),
 				LastDecision:       string(decisionInitialize),
 				LastDecisionReason: deploymentSummary,
 				CurrentStepIndex:   currentStep.StepIndex,
@@ -268,7 +271,8 @@ func (r *rolloutReconciler) reconcile(
 		Labels:        labels,
 		LabelMap:      labelMap,
 		Decision:      evaluation.Decision,
-		Summary:       evaluation.Summary,
+		Summary:       action.Summary,
+		Traffic:       deriveTrafficState(action.ToWeight, evaluation.Decision, evaluation.RolloutComplete),
 		Evaluation:    &evaluation,
 		Action:        &action,
 	})
@@ -562,6 +566,8 @@ func buildPersistencePlan(
 		runtime.CurrentStepIndex = currentStep.StepIndex
 		runtime.RolloutStepID = currentStep.ID
 	}
+
+	runtime.Traffic = deriveTrafficState(runtime.CurrentWeight, evaluation.Decision, evaluation.RolloutComplete)
 
 	return plan, stepID, runtime
 }

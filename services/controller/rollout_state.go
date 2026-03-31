@@ -29,6 +29,7 @@ type rolloutLiveState struct {
 	LabelMap      telemetryLabelMap   `json:"labelMap"`
 	Decision      rolloutDecision     `json:"decision"`
 	Summary       string              `json:"summary"`
+	Traffic       rolloutTrafficState `json:"traffic"`
 	Evaluation    *evaluationResponse `json:"evaluation,omitempty"`
 	Action        *rolloutAction      `json:"action,omitempty"`
 }
@@ -84,6 +85,7 @@ func (s *rolloutStateStore) liveStateFromEvaluation(
 		LabelMap:      labelMap,
 		Decision:      result.Decision,
 		Summary:       result.Summary,
+		Traffic:       deriveTrafficState(result.CurrentWeight, result.Decision, result.RolloutComplete),
 		Evaluation:    &result,
 	}
 

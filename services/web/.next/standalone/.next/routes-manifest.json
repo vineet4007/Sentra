@@ -30,6 +30,14 @@
       "namedRegex": "^/api/(?<nxtPpath>.+?)(?:/)?$"
     },
     {
+      "page": "/projects/[id]",
+      "regex": "^/projects/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/projects/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
       "page": "/rollouts/[id]",
       "regex": "^/rollouts/([^/]+?)(?:/)?$",
       "routeKeys": {

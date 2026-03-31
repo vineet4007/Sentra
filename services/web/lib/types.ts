@@ -429,6 +429,14 @@ export type RolloutAction = {
   details?: Record<string, unknown>
 }
 
+export type TrafficState = {
+  candidateWeight: number
+  stableWeight: number
+  state: 'split' | 'stable_only' | 'stable_restored' | 'candidate_full' | string
+  recoveredToStable: boolean
+  summary: string
+}
+
 export type LiveState = {
   schemaVersion: number
   updatedAt: string
@@ -436,6 +444,7 @@ export type LiveState = {
   rolloutStepId?: number
   decision: string
   summary: string
+  traffic?: TrafficState
   labels?: Record<string, string>
   labelMap?: Record<string, string>
   evaluation?: Evaluation
@@ -456,6 +465,7 @@ export type Rollout = {
   source: string
   deploymentMetadata: Record<string, unknown> | null
   currentWeight: number
+  traffic: TrafficState
   lastDecision: string | null
   lastDecisionReason: string | null
   startedAt: string | null

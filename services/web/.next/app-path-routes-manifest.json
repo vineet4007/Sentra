@@ -1,8 +1,9 @@
 {
-  "/api/[...path]/route": "/api/[...path]",
   "/_global-error/page": "/_global-error",
   "/_not-found/page": "/_not-found",
-  "/page": "/",
+  "/projects/[id]/page": "/projects/[id]",
   "/satellites/[id]/page": "/satellites/[id]",
-  "/rollouts/[id]/page": "/rollouts/[id]"
+  "/page": "/",
+  "/rollouts/[id]/page": "/rollouts/[id]",
+  "/api/[...path]/route": "/api/[...path]"
 }
