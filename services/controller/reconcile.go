@@ -31,18 +31,18 @@ type reconcileResponse struct {
 }
 
 type deploymentRuntime struct {
-	ID                 int64      `json:"id"`
-	ServiceName        string     `json:"serviceName"`
-	EnvironmentName    string     `json:"environmentName"`
-	Revision           string     `json:"revision"`
-	Status             string     `json:"status"`
-	CurrentWeight      int        `json:"currentWeight"`
+	ID                 int64               `json:"id"`
+	ServiceName        string              `json:"serviceName"`
+	EnvironmentName    string              `json:"environmentName"`
+	Revision           string              `json:"revision"`
+	Status             string              `json:"status"`
+	CurrentWeight      int                 `json:"currentWeight"`
 	Traffic            rolloutTrafficState `json:"traffic"`
-	LastDecision       string     `json:"lastDecision"`
-	LastDecisionReason string     `json:"lastDecisionReason"`
-	CurrentStepIndex   int        `json:"currentStepIndex"`
-	RolloutStepID      int64      `json:"rolloutStepId"`
-	CompletedAt        *time.Time `json:"completedAt,omitempty"`
+	LastDecision       string              `json:"lastDecision"`
+	LastDecisionReason string              `json:"lastDecisionReason"`
+	CurrentStepIndex   int                 `json:"currentStepIndex"`
+	RolloutStepID      int64               `json:"rolloutStepId"`
+	CompletedAt        *time.Time          `json:"completedAt,omitempty"`
 }
 
 func newRolloutReconciler(
@@ -161,10 +161,19 @@ func (r *rolloutReconciler) reconcile(
 			Revision:       execution.Deployment.Revision,
 			Initialization: true,
 		}
+		stableCapacity, err := runStableCapacityCheck(ctx, adapter, target, intent)
+		if err != nil {
+			return reconcileResponse{}, err
+		}
+		if stableCapacity != nil && !stableCapacity.Passed {
+			return r.blockForStableCapacity(ctx, execution, currentStep, labels, labelMap, state, nil, *stableCapacity, now)
+		}
+
 		action, err := adapter.Apply(ctx, target, intent)
 		if err != nil {
 			return reconcileResponse{}, err
 		}
+		attachStableCapacityCheck(&action, stableCapacity)
 
 		stepID := currentStep.ID
 		deploymentSummary := action.Summary
@@ -253,10 +262,19 @@ func (r *rolloutReconciler) reconcile(
 		Revision:        execution.Deployment.Revision,
 		RolloutComplete: evaluation.RolloutComplete,
 	}
+	stableCapacity, err := runStableCapacityCheck(ctx, adapter, target, intent)
+	if err != nil {
+		return reconcileResponse{}, err
+	}
+	if stableCapacity != nil && !stableCapacity.Passed {
+		return r.blockForStableCapacity(ctx, execution, currentStep, labels, labelMap, state, &evaluation, *stableCapacity, now)
+	}
+
 	action, err := adapter.Apply(ctx, target, intent)
 	if err != nil {
 		return reconcileResponse{}, err
 	}
+	attachStableCapacityCheck(&action, stableCapacity)
 
 	plan, activeStepID, runtime := buildPersistencePlan(execution, currentStep, evaluation, action, now)
 	if err := r.store.persistPlan(ctx, plan); err != nil {
@@ -570,6 +588,222 @@ func buildPersistencePlan(
 	runtime.Traffic = deriveTrafficState(runtime.CurrentWeight, evaluation.Decision, evaluation.RolloutComplete)
 
 	return plan, stepID, runtime
+}
+
+func runStableCapacityCheck(
+	ctx context.Context,
+	adapter rolloutAdapter,
+	target adapterRuntimeTarget,
+	intent rolloutActionIntent,
+) (*stableCapacityCheck, error) {
+	if !requiresStableCapacityCheck(intent) {
+		return nil, nil
+	}
+	checker, ok := adapter.(stableCapacityChecker)
+	if !ok {
+		return &stableCapacityCheck{
+			Checked:  false,
+			Required: false,
+			Passed:   true,
+			Status:   "unsupported",
+			Adapter:  adapter.Name(),
+			Mode:     firstNonEmpty(target.Mode, "simulation"),
+			Summary:  "This adapter does not expose a stable capacity checker yet.",
+		}, nil
+	}
+	check, err := checker.CheckStableCapacity(ctx, target, intent)
+	if err != nil {
+		return nil, err
+	}
+	return &check, nil
+}
+
+func attachStableCapacityCheck(action *rolloutAction, check *stableCapacityCheck) {
+	if action == nil || check == nil {
+		return
+	}
+	if action.Details == nil {
+		action.Details = map[string]any{}
+	}
+	action.Details["stableCapacity"] = check
+}
+
+func (r *rolloutReconciler) blockForStableCapacity(
+	ctx context.Context,
+	execution deploymentExecutionContext,
+	currentStep controllerRolloutStep,
+	labels telemetryLabels,
+	labelMap telemetryLabelMap,
+	state rolloutEvaluationState,
+	evaluation *evaluationResponse,
+	stableCapacity stableCapacityCheck,
+	now time.Time,
+) (reconcileResponse, error) {
+	summary := stableCapacity.Summary
+	if strings.TrimSpace(summary) == "" {
+		summary = "Stable capacity check failed, so Sentra is blocking traffic promotion."
+	}
+
+	action := rolloutAction{
+		Type:       "promotion_blocked",
+		Adapter:    stableCapacity.Adapter,
+		Mode:       stableCapacity.Mode,
+		Applied:    false,
+		Summary:    summary,
+		Decision:   decisionPause,
+		FromWeight: execution.Deployment.CurrentWeight,
+		ToWeight:   execution.Deployment.CurrentWeight,
+		AppliedAt:  now,
+		Details: map[string]any{
+			"stableCapacity": stableCapacity,
+		},
+	}
+
+	blockedEvaluation := stableCapacityBlockedEvaluation(evaluation, state, currentStep, summary, stableCapacity)
+
+	stepID := currentStep.ID
+	plan := persistencePlan{
+		DeploymentID:               execution.Deployment.ID,
+		DeploymentStatus:           "paused",
+		CurrentWeight:              execution.Deployment.CurrentWeight,
+		LastDecision:               string(decisionPause),
+		LastDecisionReason:         summary,
+		CurrentStepID:              currentStep.ID,
+		CurrentStepIndex:           currentStep.StepIndex,
+		CurrentStepStatus:          "paused",
+		CurrentStepDecision:        string(decisionPause),
+		CurrentStepDecisionReason:  summary,
+		CurrentStepStartedAt:       currentStep.StartedAt,
+		CurrentStepEvaluatedAt:     &now,
+		CurrentStepMetricsSnapshot: stableCapacityBlockedSnapshot(blockedEvaluation, action, stableCapacity),
+		Incident: &incidentPlan{
+			RolloutStepID: &stepID,
+			IncidentType:  "stable_capacity_blocked",
+			Severity:      "critical",
+			Summary:       summary,
+			Details: map[string]any{
+				"stableCapacity": stableCapacity,
+			},
+		},
+		AuditEvent: auditEventPlan{
+			RolloutStepID: &stepID,
+			EventType:     "rollout.promotion_blocked_stable_capacity",
+			Summary:       summary,
+			Details: map[string]any{
+				"decision":       decisionPause,
+				"evaluation":     blockedEvaluation,
+				"action":         action,
+				"stableCapacity": stableCapacity,
+			},
+		},
+	}
+	if plan.CurrentStepStartedAt == nil {
+		plan.CurrentStepStartedAt = &now
+	}
+
+	if err := r.store.persistPlan(ctx, plan); err != nil {
+		return reconcileResponse{}, err
+	}
+
+	warning := r.publishActionState(ctx, "rollout.promotion_blocked_stable_capacity", rolloutLiveState{
+		SchemaVersion: 1,
+		UpdatedAt:     now,
+		DeploymentID:  &execution.Deployment.ID,
+		RolloutStepID: &stepID,
+		Labels:        labels,
+		LabelMap:      labelMap,
+		Decision:      decisionPause,
+		Summary:       summary,
+		Traffic:       deriveTrafficState(execution.Deployment.CurrentWeight, decisionPause, false),
+		Evaluation:    &blockedEvaluation,
+		Action:        &action,
+	})
+
+	runtime := deploymentRuntime{
+		ID:                 execution.Deployment.ID,
+		ServiceName:        execution.Service.Name,
+		EnvironmentName:    execution.Environment.Name,
+		Revision:           execution.Deployment.Revision,
+		Status:             "paused",
+		CurrentWeight:      execution.Deployment.CurrentWeight,
+		Traffic:            deriveTrafficState(execution.Deployment.CurrentWeight, decisionPause, false),
+		LastDecision:       string(decisionPause),
+		LastDecisionReason: summary,
+		CurrentStepIndex:   currentStep.StepIndex,
+		RolloutStepID:      currentStep.ID,
+	}
+
+	return reconcileResponse{
+		DeploymentID: execution.Deployment.ID,
+		Phase:        "blocked_stable_capacity",
+		Deployment:   runtime,
+		Action:       action,
+		Evaluation:   &blockedEvaluation,
+		Warning:      warning,
+	}, nil
+}
+
+func stableCapacityBlockedEvaluation(
+	evaluation *evaluationResponse,
+	state rolloutEvaluationState,
+	currentStep controllerRolloutStep,
+	summary string,
+	stableCapacity stableCapacityCheck,
+) evaluationResponse {
+	if evaluation != nil {
+		blocked := *evaluation
+		blocked.Decision = decisionPause
+		blocked.Summary = summary
+		blocked.Reasons = append([]string{summary}, blocked.Reasons...)
+		blocked.RolloutComplete = false
+		blocked.TargetStepIndex = blocked.CurrentStepIndex
+		blocked.TargetWeight = blocked.CurrentWeight
+		blocked.NextState = state.withDecision(decisionPause, summary)
+		return blocked
+	}
+
+	nextState := state
+	if nextState.StepStartedAt.IsZero() {
+		nextState.StepStartedAt = fallbackStepStart(currentStep, time.Now().UTC())
+	}
+	nextState.CurrentStepIndex = currentStep.StepIndex
+	nextState.CurrentWeight = currentStep.TargetWeight
+
+	return evaluationResponse{
+		Decision:         decisionPause,
+		Summary:          summary,
+		Reasons:          []string{summary},
+		RolloutComplete:  false,
+		CurrentStepIndex: currentStep.StepIndex,
+		TargetStepIndex:  currentStep.StepIndex,
+		CurrentWeight:    currentStep.TargetWeight,
+		TargetWeight:     currentStep.TargetWeight,
+		NextState:        nextState.withDecision(decisionPause, summary),
+		GateResults: []gateEvaluationResult{
+			{
+				Name:         "stableCapacity",
+				Source:       stableCapacity.Adapter,
+				SignalStatus: signalStatusError,
+				Passed:       false,
+				Severe:       true,
+				Reason:       summary,
+			},
+		},
+	}
+}
+
+func stableCapacityBlockedSnapshot(
+	evaluation evaluationResponse,
+	action rolloutAction,
+	stableCapacity stableCapacityCheck,
+) map[string]any {
+	return map[string]any{
+		"summary":        evaluation.Summary,
+		"reasons":        evaluation.Reasons,
+		"gateResults":    evaluation.GateResults,
+		"action":         action,
+		"stableCapacity": stableCapacity,
+	}
 }
 
 func buildIncidentPlan(stepID int64, evaluation evaluationResponse) *incidentPlan {

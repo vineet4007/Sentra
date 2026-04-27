@@ -1,5 +1,6 @@
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise'
 import type { Request, RequestHandler } from 'express'
+import { timingSafeEqual } from 'node:crypto'
 import { queryRows } from './db.js'
 import { ApiError } from './http.js'
 
@@ -8,12 +9,17 @@ type ApiSecurityConfig = {
   requireTenant: boolean
   defaultTenant: string | null
   tenantHeader: string
+  actionToken: string | null
+  actionHeader: string
+  actionActorHeader: string
 }
 
 type Queryable = Pick<PoolConnection, 'query'>
 
 const DEFAULT_TENANT = 'default'
 const TENANT_HEADER = 'x-sentra-tenant'
+const ACTION_HEADER = 'x-sentra-action-token'
+const ACTION_ACTOR_HEADER = 'x-sentra-actor'
 
 const SENSITIVE_KEY_PATTERNS = [
   'password',
@@ -53,6 +59,17 @@ export function createApiSecurityMiddleware(config: ApiSecurityConfig = security
   }
 }
 
+export function createActionAuthorityMiddleware(config: ApiSecurityConfig = securityConfig): RequestHandler {
+  return (req, _res, next) => {
+    try {
+      authorizeActionRequest(req, config)
+      next()
+    } catch (error) {
+      next(error)
+    }
+  }
+}
+
 export function getRequestTenantKey(
   req: Request,
   config: ApiSecurityConfig = securityConfig,
@@ -74,6 +91,10 @@ export function getTenantKeyForWrite(
   config: ApiSecurityConfig = securityConfig,
 ): string {
   return getRequestTenantKey(req, config) || config.defaultTenant || DEFAULT_TENANT
+}
+
+export function getActionActor(req: Request, config: ApiSecurityConfig = securityConfig): string {
+  return headerValueString(req, config.actionActorHeader) || 'operator'
 }
 
 export function assertNoSensitiveKeys(value: unknown, label: string): void {
@@ -197,6 +218,9 @@ function loadApiSecurityConfig(): ApiSecurityConfig {
     requireTenant: boolEnv('SENTRA_REQUIRE_TENANT', false),
     defaultTenant: optionalEnv('SENTRA_DEFAULT_TENANT'),
     tenantHeader: optionalEnv('SENTRA_TENANT_HEADER') || TENANT_HEADER,
+    actionToken: optionalEnv('SENTRA_ACTION_TOKEN'),
+    actionHeader: optionalEnv('SENTRA_ACTION_HEADER') || ACTION_HEADER,
+    actionActorHeader: optionalEnv('SENTRA_ACTION_ACTOR_HEADER') || ACTION_ACTOR_HEADER,
   }
 }
 
@@ -233,6 +257,62 @@ function ensureTenantIfRequired(req: Request, config: ApiSecurityConfig): void {
       `Missing tenant scope. Provide ${config.tenantHeader} or configure SENTRA_DEFAULT_TENANT.`,
     )
   }
+}
+
+function authorizeActionRequest(req: Request, config: ApiSecurityConfig): void {
+  if (!requiresActionAuthority(req)) {
+    return
+  }
+  if (!config.actionToken) {
+    return
+  }
+
+  const token = headerValueString(req, config.actionHeader)
+  if (!token) {
+    throw new ApiError(
+      403,
+      `Sentra action authority is required for this operation. Provide ${config.actionHeader} from a trusted operator session.`,
+    )
+  }
+  if (!constantTimeEqual(token, config.actionToken)) {
+    throw new ApiError(403, 'Invalid Sentra action authority token')
+  }
+}
+
+function requiresActionAuthority(req: Request): boolean {
+  const method = req.method.toUpperCase()
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    return false
+  }
+
+  const path = normalizeRequestPath(req.path)
+  if (path === '/satellites/heartbeat') {
+    return false
+  }
+  if (path === '/satellites/tasks/claim') {
+    return false
+  }
+  if (/^\/satellites\/tasks\/[^/]+\/report$/.test(path)) {
+    return false
+  }
+
+  return true
+}
+
+function normalizeRequestPath(path: string): string {
+  if (!path || path === '/') {
+    return '/'
+  }
+  return path.endsWith('/') ? path.slice(0, -1) : path
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left)
+  const rightBuffer = Buffer.from(right)
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false
+  }
+  return timingSafeEqual(leftBuffer, rightBuffer)
 }
 
 function headerValueString(req: Request, key: string): string | null {

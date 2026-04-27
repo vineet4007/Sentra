@@ -62,6 +62,7 @@ Important current behavior:
 - the onboarding form currently creates a **Kubernetes-style rollout in `simulation` mode**
 - that means it is safe for first-time exploration
 - Sentra will evaluate and simulate rollout actions without mutating a real cluster unless you explicitly configure direct apply elsewhere
+- in secured deployments, read-only access to Sentra does not automatically grant rollout authority; operator write actions can require a separate Sentra action token or trusted SSO/auth-proxy claim
 
 ## First-time setup from the UI
 
@@ -133,6 +134,8 @@ These mean:
 - then 95%
 - only promote when the rollout passes the checks enough times
 - wait a little after each shift so metrics can settle
+
+For direct Kubernetes rollouts, Sentra can also check stable capacity before it initializes or promotes traffic. Configure `stableDeployment` in the deployment target config so Sentra knows which stable deployment should be ready if rollback is needed. In simulation mode, Sentra assumes this check passes unless you provide simulated values under `stableCapacity`.
 
 ## What each onboarding field means
 
@@ -360,12 +363,15 @@ It includes:
 - adapter
 - mode
 - traffic shift
+- stable capacity status when Sentra checked the fallback target
 
 Example:
 
 - `Adapter: kubernetes`
 - `Mode: simulation`
 - `Traffic shift: 25% -> 50%`
+
+If a rollout is paused with `stable_capacity_blocked`, Sentra did not trust the fallback target enough to increase candidate traffic. For Kubernetes this usually means the configured `stableDeployment` was missing or did not have enough ready or available replicas.
 
 ## How to use satellites
 
@@ -420,6 +426,18 @@ If you are new to Sentra, use this order every time:
 If you only remember one rule:
 
 **Gate readout plus audit history tells you the real operational story.**
+
+## Access versus rollout authority
+
+Sentra separates three kinds of authority:
+
+- **Sentra read access** lets a user view projects, rollouts, telemetry summaries, incidents, and audit history.
+- **Sentra action authority** lets an approved operator create deployments, change integrations or policies, onboard projects, and queue delegated reconciles.
+- **Cloud IAM authority** belongs to Sentra's execution identity, not to each individual user.
+
+This means an operator can trigger an approved rollback through Sentra without having personal AWS, Azure, GCP, or Kubernetes admin access. It also means a read-only Sentra user should not be able to turn Sentra into an indirect cloud-admin path.
+
+In local development, the extra action-authority gate is off unless `SENTRA_ACTION_TOKEN` is configured.
 
 ## Glossary and why Sentra uses these words
 
@@ -507,6 +525,17 @@ Why we use this word:
 ### Stable
 
 The **stable** version is the currently trusted version that serves as the safe fallback.
+
+### Stable capacity
+
+**Stable capacity** means the stable fallback target has enough healthy capacity to take traffic back if the candidate fails.
+
+For Kubernetes, Sentra can verify this through deployment readiness. For non-container platforms, the same idea maps to the provider's stable target:
+
+- Lambda stable version behind an alias
+- Cloud Run stable revision
+- Azure revision
+- VM or load-balancer backend pool health
 
 ### Gate
 

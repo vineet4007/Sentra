@@ -28,11 +28,20 @@ function toneForDecision(decision?: string | null): 'neutral' | 'good' | 'warn' 
   }
 }
 
+function stableCapacityDetails(details?: Record<string, unknown>) {
+  const value = details?.stableCapacity
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  return value as Record<string, unknown>
+}
+
 export function RolloutDetailView({ rollout, satellites }: RolloutDetailViewProps) {
   const liveDecision = rollout.liveState?.decision || rollout.lastDecision || rollout.status
   const traffic = rollout.liveState?.traffic || rollout.traffic
   const gateResults = rollout.liveState?.evaluation?.gateResults || []
   const telemetryWindow = rollout.liveState?.evaluation?.telemetrySnapshot?.window
+  const stableCapacity = stableCapacityDetails(rollout.liveState?.action?.details)
 
   return (
     <main className="detail-page">
@@ -238,7 +247,20 @@ export function RolloutDetailView({ rollout, satellites }: RolloutDetailViewProp
                     : 'n/a'}
                 </strong>
               </div>
+              {stableCapacity ? (
+                <>
+                  <div>
+                    <span>Stable capacity</span>
+                    <strong>{String(stableCapacity.status || 'checked')}</strong>
+                  </div>
+                  <div>
+                    <span>Fallback check</span>
+                    <strong>{stableCapacity.passed === false ? 'blocked' : 'clear'}</strong>
+                  </div>
+                </>
+              ) : null}
             </div>
+            {stableCapacity?.summary ? <p className="muted">{String(stableCapacity.summary)}</p> : null}
           </section>
         </aside>
       </section>

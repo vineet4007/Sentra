@@ -18,6 +18,16 @@ Rollback must not mean:
 - leaving a known-bad candidate on partial traffic
 - forcing users to wait for a fresh redeploy before traffic is safe again
 
+## Authority rule
+
+Sentra's execution identity may have permission to move traffic, but Sentra access alone must not grant that permission to every user.
+
+- autonomous rollback follows stored policy, telemetry gates, and controller execution identity
+- user-initiated rollout actions require Sentra action authority
+- individual users do not need direct cloud IAM roles for approved Sentra actions
+- direct cloud IAM should stay scoped to Sentra service accounts, roles, managed identities, or federated workload identities
+- audit records should preserve which Sentra actor initiated human/operator actions whenever that context is available
+
 ## Canonical failure example
 
 If a rollout progresses like this:
@@ -83,13 +93,24 @@ That means operators can now see both the candidate share and the stable fallbac
 - policy writes are validated so rollout steps cannot exceed `100 - stableTrafficFloorPct`
 - environment edits also validate existing policies before raising the fallback floor
 
-This does not replace runtime capacity checks, but it does stop first-time configurations from accidentally draining the stable path during candidate evaluation.
+This does not replace all runtime capacity checks, but it does stop first-time configurations from accidentally draining the stable path during candidate evaluation.
+
+### Stable capacity checks
+
+- Sentra now runs a stable-capacity guard before rollout initialization and promotion.
+- Kubernetes targets can verify a configured `stableDeployment` through `kubectl get deployment ... -o json`.
+- The guard checks minimum ready replicas, minimum available replicas, and optional available percentage.
+- If the stable target cannot be verified, Sentra pauses the rollout, records a `stable_capacity_blocked` incident, emits a `rollout.promotion_blocked_stable_capacity` audit event, and keeps candidate traffic at its current weight.
+- In simulation mode, operators can provide assumed capacity values under `deploymentTargetConfig.stableCapacity` to rehearse the control path without a live cluster.
+- Cloud Run, Lambda, and Azure Container Apps currently validate the stable rollback identity before promotion; deeper provider-specific capacity checks are still future work.
+
+For non-container workloads, the same rule applies: Sentra needs a stable fallback target and a runtime-specific way to verify it. That might be a Lambda version, Cloud Run revision, Azure revision, VM backend pool, or external load-balancer target group.
 
 ## What Sentra does not fully enforce yet
 
-- Sentra does not yet verify stable capacity or headroom before promotions and rollbacks
 - Sentra does not yet model connection draining as a first-class rollout safety feature
 - Sentra does not yet block rollouts based on database migration compatibility or contract safety
+- Sentra does not yet perform deep runtime capacity checks for every non-Kubernetes adapter
 
 These are important hardening tasks before calling rollback protection fully production-complete.
 
@@ -101,13 +122,14 @@ Sentra is already following the correct rollback direction and now makes it more
 - return service to the last known good release
 - keep an operator-visible stable fallback share in API and UI state
 - validate safer default rollout steps against a configured stable fallback floor
+- block Kubernetes promotions when stable capacity cannot be verified
 
-But it is not yet fully production-hardened for zero-surprise rollback operations because stable-capacity validation, draining, and schema or contract safety checks are still missing.
+But it is not yet fully production-hardened for zero-surprise rollback operations because provider-wide capacity depth, draining, and schema or contract safety checks are still missing.
 The remaining gap is mostly runtime hardening, not control-plane intent.
 
 ## Recommended next hardening work
 
-1. Add readiness and capacity guardrails before traffic promotions.
+1. Expand stable-capacity checks beyond Kubernetes into Cloud Run, Lambda, Azure Container Apps, and external load-balancer adapters.
 2. Add connection-draining or grace-period support where the runtime allows it.
 3. Add rollout checks for backward-compatible schema and contract changes.
 4. Add integration tests that assert rollback returns all traffic to stable targets.

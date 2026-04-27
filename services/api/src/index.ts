@@ -12,6 +12,7 @@ import projectRouter from './routes/projects.js'
 import rolloutRouter from './routes/rollouts.js'
 import satelliteRouter from './routes/satellites.js'
 import {
+  createActionAuthorityMiddleware,
   createApiSecurityMiddleware,
   deploymentBelongsToTenant,
   getApiSecurityConfig,
@@ -26,6 +27,7 @@ const security = getApiSecurityConfig()
 app.use(express.json())
 app.use('/health', healthRouter)
 app.use(createApiSecurityMiddleware(security))
+app.use(createActionAuthorityMiddleware(security))
 app.use('/ai', aiRouter)
 app.use('/projects', projectRouter)
 app.use('/environments', environmentRouter)

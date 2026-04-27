@@ -1,704 +1,353 @@
-# Sentra — Phase 0–1 Bootstrapped Repo (Scaffold + Config + CI)
+# Sentra Project Structure
 
-This is a production-grade, no-nonsense scaffold to kick off **Phase 0–1**. It gives you:
+This document explains how the current Sentra repository is organized. It replaces the earlier scaffold snapshot with the structure of the working product loop: API, controller, web UI, AI advisor, database migrations, local observability, reports, and packaging.
 
-* **Repo layout** with strict separation of concerns
-* **Docker Compose** for MySQL, Redis, Prometheus, Loki, Tempo (and Promtail)
-* Minimal **Go rollout controller** (compiles, runs, exposes basic health)
-* Minimal **Node.js API** (Express + WebSocket/SSE-ready, Redis client wired)
-* **.env.example**, **Makefile**, **GitHub Actions CI** (build, lint, type-check, docker validate)
+Generated output is not part of the source map below. In a local checkout you may also see `services/web/.next/`, `services/api/dist/`, `dist/`, `.env`, `.DS_Store`, and Python `__pycache__/` folders.
 
-Follow the **Quickstart** at the bottom to launch everything locally.
+## Top-Level Layout
 
----
-
-## Repository Tree
-
-```
+```text
 sentra/
-├─ .github/workflows/ci.yml
-├─ .gitignore
-├─ .editorconfig
-├─ .env.example
-├─ Makefile
-├─ README.md
-├─ docker-compose.yml
-├─ infra/
-│  ├─ prometheus/
-│  │  └─ prometheus.yml
-│  ├─ loki/
-│  │  └─ loki-config.yml
-│  ├─ promtail/
-│  │  └─ promtail-config.yml
-│  └─ tempo/
-│     └─ tempo.yml
-├─ services/
-│  ├─ controller/               # Go rollout controller (Phase 1 skeleton)
-│  │  ├─ go.mod
-│  │  └─ main.go
-│  └─ api/                      # Node.js API (REST + WS/SSE skeleton)
-│     ├─ package.json
-│     ├─ tsconfig.json
-│     └─ src/
-│        ├─ index.ts
-│        ├─ redis.ts
-│        ├─ routes/
-│        │  └─ health.ts
-│        └─ telemetry/
-│           └─ placeholder.ts
-└─ scripts/
-   └─ dev.sh
+|-- services/              Runtime services: API, controller, web, AI advisor
+|-- db/                    MySQL schema and migration notes
+|-- infra/                 Local observability config for Prometheus, Loki, Promtail, Tempo
+|-- deploy/selfhosted/     Self-hosted Docker Compose packaging overlay and production env template
+|-- scripts/               Smoke, integration, federation, regression, packaging, and AI report scripts
+|-- reports/               Generated AI benchmark, dataset, model, and regression summaries
+|-- docker-compose.yml     Local development stack
+|-- Makefile               Common developer and verification commands
+|-- VERSION                Locked release version
+|-- README.md              Main setup and operational reference
+|-- IMPLEMENTATION_PLAN.md Working build plan and status checklist
+|-- SENTRA_USER_GUIDE.md   Frontend operator guide
+|-- architecture.md        Multi-cloud architecture direction
+`-- *.md                   Product, safety, telemetry, and structure docs
 ```
 
----
+## Runtime Services
 
-## Root: `.gitignore`
+Sentra is split into four service folders under `services/`.
 
-```gitignore
-# Node
-node_modules/
-*.log
+### `services/api`
 
-# Typescript
-*.tsbuildinfo
+The Node.js TypeScript API owns onboarding, persisted control-plane writes, read models for the UI, SSE event streaming, tenant and auth handling, AI advisory aggregation, and report/export surfaces.
 
-# Go
-bin/
-*.exe
-*.test
-
-# Env
-.env
-
-# Docker
-**/.DS_Store
-**/.idea
-**/.vscode
-**/.venv
-
-# Coverage
-coverage/
+```text
+services/api/
+|-- Dockerfile
+|-- package.json
+|-- package-lock.json
+|-- tsconfig.json
+|-- eslint.config.js
+|-- config/
+|   `-- ai/
+|       `-- candidate-risk-profile.json
+`-- src/
+    |-- index.ts                 Express app entrypoint
+    |-- db.ts                    MySQL pool and query helpers
+    |-- redis.ts                 Redis client wiring
+    |-- events.ts                Rollout event publishing/streaming helpers
+    |-- http.ts                  Shared HTTP helpers
+    |-- security.ts              API auth, tenancy, and redaction helpers
+    |-- telemetry.ts             API-side telemetry validation helpers
+    |-- rollout-safety.ts        Stable fallback and rollout policy validation
+    |-- advisor.ts               AI advisor orchestration
+    |-- advisor-candidate.ts     Candidate advisory series logic
+    |-- ai.ts                    AI evaluation/benchmark data helpers
+    |-- ai-shadow.ts             Shadow-mode advisory history and scorecards
+    |-- candidate-profile.ts     Runtime loading of trained candidate profile
+    |-- routes/
+    |   |-- ai.ts
+    |   |-- deployments.ts
+    |   |-- environments.ts
+    |   |-- health.ts
+    |   |-- integrations.ts
+    |   |-- policies.ts
+    |   |-- projects.ts
+    |   |-- rollouts.ts
+    |   `-- satellites.ts
+    `-- telemetry/
+        `-- placeholder.ts
 ```
 
----
+Current API responsibilities:
 
-## Root: `.editorconfig`
+- project, service, environment, policy, deployment, rollout, and satellite routes
+- same-origin data source for the Next.js frontend
+- Redis-backed rollout live state and SSE replay support
+- AI advisory history, evaluation, benchmark, dataset, and candidate comparison surfaces
+- tenant-aware reads and writes when tenancy is enabled
+- optional action-authority checks for human/operator write routes
+- secret redaction and inline secret rejection for integration config
 
-```ini
-root = true
+### `services/controller`
 
-[*]
-charset = utf-8
-end_of_line = lf
-indent_style = space
-indent_size = 2
-insert_final_newline = true
-trim_trailing_whitespace = true
+The Go controller owns telemetry reads, deterministic rollout decisions, reconciliation, adapter execution, traffic state, federation heartbeat, and delegated satellite task execution.
+
+```text
+services/controller/
+|-- Dockerfile
+|-- go.mod
+|-- go.sum
+|-- main.go
+|-- config.go
+|-- auth.go
+|-- store.go
+|-- telemetry.go
+|-- decision.go
+|-- reconcile.go
+|-- adapter.go
+|-- traffic.go
+|-- rollout_state.go
+|-- satellite.go
+|-- satellite_tasks.go
+|-- stable_capacity.go
+|-- *_test.go
 ```
 
----
+Current controller responsibilities:
 
-## Root: `.env.example`
+- `GET /health`, `GET /metrics`, `GET /telemetry/validate`, and `GET /telemetry/snapshot`
+- `POST /rollouts/evaluate` for deterministic policy evaluation
+- `POST /rollouts/reconcile` for loading deployment state and applying the next action
+- Prometheus, Loki, and Tempo telemetry readers
+- stable-capacity guards before rollout initialization and promotion
+- Kubernetes, Cloud Run, AWS Lambda, and Azure Container Apps traffic adapters
+- safe simulation defaults plus guarded direct-apply modes
+- Redis live-state publication and MySQL audit/step/incident persistence
+- satellite heartbeat and delegated `reconcile.deployment` task execution
 
-```bash
-# MySQL
-MYSQL_ROOT_PASSWORD=sentra_root
-MYSQL_DATABASE=sentra
-MYSQL_USER=sentra
-MYSQL_PASSWORD=sentra_pass
+### `services/web`
 
-# API
-API_PORT=8080
-REDIS_URL=redis://redis:6379
-MYSQL_DSN=sentra:sentra_pass@tcp(mysql:3306)/sentra?parseTime=true
+The Next.js frontend owns the operator control room, onboarding flow, rollout details, project workspace, satellite detail view, AI advisory panels, and the same-origin proxy to the API.
 
-# Controller
-CONTROLLER_HTTP_PORT=8090
-PROMETHEUS_URL=http://prometheus:9090
-LOKI_URL=http://loki:3100
-TEMPO_URL=http://tempo:3200
+```text
+services/web/
+|-- Dockerfile
+|-- package.json
+|-- package-lock.json
+|-- tsconfig.json
+|-- next.config.ts
+|-- eslint.config.mjs
+|-- app/
+|   |-- layout.tsx
+|   |-- page.tsx
+|   |-- globals.css
+|   |-- not-found.tsx
+|   |-- api/[...path]/route.ts
+|   |-- projects/[id]/page.tsx
+|   |-- rollouts/[id]/page.tsx
+|   `-- satellites/[id]/page.tsx
+|-- components/
+|   |-- dashboard-shell.tsx
+|   |-- onboarding-panel.tsx
+|   |-- rollout-card.tsx
+|   |-- rollout-detail-view.tsx
+|   |-- project-detail-view.tsx
+|   |-- satellite-detail-view.tsx
+|   |-- delegate-task-panel.tsx
+|   |-- live-event-stream.tsx
+|   |-- ai-advisor-panel.tsx
+|   |-- ai-benchmark-panel.tsx
+|   |-- ai-evaluation-panel.tsx
+|   |-- ai-shadow-review-panel.tsx
+|   |-- status-pill.tsx
+|   `-- step-track.tsx
+|-- lib/
+|   |-- api.ts
+|   `-- types.ts
+`-- public/
+    `-- .gitkeep
 ```
 
----
+Current frontend responsibilities:
 
-## Root: `Makefile`
+- homepage control room at `/`
+- project workspace at `/projects/:id`
+- rollout detail page at `/rollouts/:id`
+- satellite detail page at `/satellites/:id`
+- onboarding for project, service, environment, telemetry, policy, and optional deployment revision
+- rollout cards with traffic shape, gate summaries, incidents, AI context, and audit links
+- delegated reconcile action when a live task-worker satellite is available
+- API/SSE proxy through `app/api/[...path]/route.ts`
 
-```makefile
-SHELL := /bin/bash
+### `services/ai`
 
-.PHONY: up down logs build fmt lint ci
+The Python FastAPI service provides the first advisory-only AI layer.
 
-up:
-	docker compose up -d --build
-
-Down:
-	docker compose down -v
-
-logs:
-	docker compose logs -f --tail=200
-
-build:
-	cd services/controller && go build -o ../../bin/controller
-	cd services/api && npm ci && npm run build
-
-fmt:
-	cd services/controller && go fmt ./...
-	cd services/api && npm run lint --silent || true
-
-ci: fmt build
+```text
+services/ai/
+|-- Dockerfile
+|-- requirements.txt
+|-- app/
+|   |-- __init__.py
+|   |-- main.py
+|   |-- advisor.py
+|   `-- models.py
+`-- tests/
+    |-- __init__.py
+    `-- test_advisor.py
 ```
 
-> Note: `Down` target capitalized intentionally to avoid accidental teardown; use `make Down`.
+Current AI responsibilities:
 
----
+- `fastapi-shadow-v1` advisory runtime
+- risk scoring, rollback probability, predicted outcome, confidence, anomaly summaries, and rationale
+- container-backed unit tests via `make ai-test`
+- advisory-only operation; deterministic controller decisions remain authoritative
 
-## Root: `docker-compose.yml`
+## Data Model
 
-```yaml
-version: "3.9"
+Database structure lives under `db/`.
 
-services:
-  mysql:
-    image: mysql:8.4
-    command: ["mysqld", "--default-authentication-plugin=mysql_native_password"]
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u$$MYSQL_USER", "-p$$MYSQL_PASSWORD"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7.4-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-
-  prometheus:
-    image: prom/prometheus:v2.55.0
-    volumes:
-      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    command: ["--config.file=/etc/prometheus/prometheus.yml"]
-    ports:
-      - "9090:9090"
-
-  loki:
-    image: grafana/loki:3.1.1
-    command: ["-config.file=/etc/loki/config/loki-config.yml"]
-    volumes:
-      - ./infra/loki/loki-config.yml:/etc/loki/config/loki-config.yml:ro
-      - loki_data:/loki
-    ports:
-      - "3100:3100"
-
-  promtail:
-    image: grafana/promtail:3.1.1
-    command: ["-config.file=/etc/promtail/config.yml"]
-    volumes:
-      - ./infra/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
-      - /var/log:/var/log:ro
-
-  tempo:
-    image: grafana/tempo:2.6.1
-    command: ["-config.file=/etc/tempo/tempo.yml"]
-    volumes:
-      - ./infra/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
-      - tempo_data:/var/tempo
-    ports:
-      - "3200:3200"   # HTTP
-
-  api:
-    build:
-      context: ./services/api
-      dockerfile: Dockerfile
-    env_file:
-      - ./.env
-    ports:
-      - "8080:8080"
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: ["npm", "run", "start"]
-
-  controller:
-    build:
-      context: ./services/controller
-      dockerfile: Dockerfile
-    env_file:
-      - ./.env
-    ports:
-      - "8090:8090"
-    depends_on:
-      prometheus:
-        condition: service_started
-      loki:
-        condition: service_started
-      tempo:
-        condition: service_started
-    command: ["/app/controller"]
-
-volumes:
-  mysql_data:
-  redis_data:
-  loki_data:
-  tempo_data:
+```text
+db/
+|-- README.md
+`-- migrations/
+    |-- 001_initial_control_plane.sql
+    |-- 002_tenant_security.sql
+    |-- 003_federated_satellites.sql
+    |-- 004_satellite_tasks.sql
+    |-- 005_ai_shadow_advisories.sql
+    `-- 006_ai_advisory_series.sql
 ```
 
----
+The migrations define the persistent control plane:
 
-## `infra/prometheus/prometheus.yml`
+- projects, services, environments, policies, deployments, rollout steps, incidents, and audit events
+- tenant scoping and secret-reference support
+- satellite registry and delegated task queue
+- AI advisory history, advisory series, and model comparison data
 
-```yaml
-global:
-  scrape_interval: 5s
+Fresh MySQL volumes apply these migrations automatically through Docker. Existing local databases can be migrated with `make db-migrate`.
 
-scrape_configs:
-  - job_name: "prometheus"
-    static_configs:
-      - targets: ["prometheus:9090"]
-  - job_name: "controller"
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["controller:8090"]
+## Local Infrastructure
+
+Local observability configuration lives under `infra/`.
+
+```text
+infra/
+|-- prometheus/
+|   `-- prometheus.yml
+|-- loki/
+|   `-- loki-config.yml
+|-- promtail/
+|   `-- promtail-config.yml
+`-- tempo/
+    `-- tempo.yml
 ```
 
----
+`docker-compose.yml` wires the local stack:
 
-## `infra/loki/loki-config.yml`
+- MySQL for authoritative state
+- Redis for live state, pub/sub, locks, and replay
+- Prometheus for metrics
+- Loki and Promtail for logs
+- Tempo for traces
+- API, controller, AI advisor, and web services
 
-```yaml
-server:
-  http_listen_port: 3100
-common:
-  path_prefix: /loki
-  storage:
-    filesystem:
-      chunks_directory: /loki/chunks
-      rules_directory: /loki/rules
-  replication_factor: 1
-schema_config:
-  configs:
-    - from: 2024-01-01
-      store: boltdb-shipper
-      object_store: filesystem
-      schema: v13
-      index:
-        prefix: index_
-        period: 24h
-ruler:
-  alertmanager_url: http://localhost:9093
+## Self-Hosted Packaging
+
+```text
+deploy/
+`-- selfhosted/
+    |-- .env.production.example
+    |-- README.md
+    `-- docker-compose.selfhosted.yml
 ```
 
----
+The self-hosted overlay adds restart policies and log rotation defaults while keeping the development stack architecture intact. `scripts/package-selfhosted.sh` builds distributable archives under `dist/`.
 
-## `infra/promtail/promtail-config.yml`
+## Scripts
 
-```yaml
-server:
-  http_listen_port: 9080
-  grpc_listen_port: 0
-
-positions:
-  filename: /tmp/positions.yaml
-
-clients:
-  - url: http://loki:3100/loki/api/v1/push
-
-scrape_configs:
-  - job_name: varlogs
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          job: varlogs
-          __path__: /var/log/*.log
+```text
+scripts/
+|-- dev.sh
+|-- apply-mysql-migrations.sh
+|-- smoke-local-stack.sh
+|-- verify-rollout-flow.mjs
+|-- verify-multi-service-flow.mjs
+|-- verify-federation-flow.sh
+|-- run-regression-suite.sh
+|-- generate-ai-benchmark-report.mjs
+|-- export-ai-training-dataset.mjs
+|-- train-ai-risk-profile.mjs
+`-- package-selfhosted.sh
 ```
 
----
+The scripts cover local startup, migration application, smoke checks, rollout verification, multi-service verification, federation verification, AI benchmark/dataset/profile workflows, regression runs, and packaging.
 
-## `infra/tempo/tempo.yml`
+## Reports and Generated Evidence
 
-```yaml
-server:
-  http_listen_port: 3200
-
-storage:
-  trace:
-    backend: local
-    local:
-      path: /var/tempo/traces
-
-distributor:
-  receivers:
-    otlp:
-      protocols:
-        http:
-        grpc:
+```text
+reports/
+|-- ai/
+|   |-- latest.md
+|   |-- latest.json
+|   |-- datasets/
+|   |   |-- primary-latest.jsonl
+|   |   |-- candidate-latest.jsonl
+|   |   |-- latest-summary.md
+|   |   `-- latest-summary.json
+|   `-- models/
+|       |-- candidate-risk-profile.md
+|       `-- candidate-risk-profile.json
+`-- regression/
+    `-- 0.2.0-beta.1/
+        |-- 20260327T043718Z/
+        |   `-- summary.md
+        |-- 20260327T044810Z/
+        |   `-- summary.md
+        `-- 20260327T060755Z/
+            `-- summary.md
 ```
 
----
+Reports currently include:
 
-## Go Controller: `services/controller/go.mod`
+- AI benchmark readiness output
+- primary and candidate advisory datasets
+- candidate risk profile artifacts
+- version-stamped regression summaries
 
-```go
-module github.com/yourorg/sentra/controller
+## Documentation Map
 
-go 1.22
-
-require (
-	github.com/prometheus/client_golang v1.20.2
-)
+```text
+README.md                  Main setup, API, UI, controller, verification, and packaging reference
+IMPLEMENTATION_PLAN.md     Working roadmap and completion checklist
+SENTRA_USER_GUIDE.md       First-time frontend and operator guide
+ROLLBACK_SAFETY_POLICY.md  Stable fallback and rollback safety expectations
+TELEMETRY_REQUIREMENTS.md  Prometheus, Loki, Tempo, label, and query contract
+architecture.md            Multi-cloud architecture and topology direction
+PROJECT_OVERVIEW.md        Product overview
+PROJECT_AIMS.md            Mission, goals, and technology stack
+project.md                 Short product pitch
+db/README.md               Database ownership and migration notes
+deploy/selfhosted/README.md Self-hosted bundle instructions
+directory_structure.md     Compact repository tree
+project_structure.md       This structure and ownership guide
 ```
 
-### `services/controller/main.go`
-
-```go
-package main
-
-import (
-	"fmt"
-	"log"
-	"net/http"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-)
-
-var (
-	ready = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "sentra_controller_ready",
-		Help: "Readiness of the controller (1=ready)",
-	})
-)
-
-func health(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
-}
-
-func main() {
-	prometheus.MustRegister(ready)
-	ready.Set(1)
-
-	http.HandleFunc("/health", health)
-	http.Handle("/metrics", promhttp.Handler())
-
-	port := ":8090"
-	log.Printf("controller up on %s", port)
-	if err := http.ListenAndServe(port, nil); err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println()
-}
-```
-
-### `services/controller/Dockerfile`
-
-```dockerfile
-FROM golang:1.22-alpine AS build
-WORKDIR /src
-COPY go.mod .
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/controller
-
-FROM alpine:3.20
-WORKDIR /app
-COPY --from=build /out/controller /app/controller
-EXPOSE 8090
-ENTRYPOINT ["/app/controller"]
-```
-
----
-
-## Node API: `services/api/package.json`
-
-```json
-{
-  "name": "sentra-api",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "node --enable-source-maps dist/index.js",
-    "build": "tsc -p tsconfig.json",
-    "lint": "eslint . --ext .ts"
-  },
-  "dependencies": {
-    "express": "^4.19.2",
-    "ioredis": "^5.4.1"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@typescript-eslint/eslint-plugin": "^8.7.0",
-    "@typescript-eslint/parser": "^8.7.0",
-    "eslint": "^9.12.0",
-    "tsx": "^4.19.1",
-    "typescript": "^5.6.3"
-  }
-}
-```
-
-### `services/api/tsconfig.json`
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ES2022",
-    "outDir": "dist",
-    "rootDir": "src",
-    "strict": true,
-    "esModuleInterop": true,
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "sourceMap": true
-  },
-  "include": ["src"]
-}
-```
-
-### `services/api/src/index.ts`
-
-```ts
-import express from 'express'
-import { createClient } from './redis.js'
-import healthRouter from './routes/health.js'
-
-const app = express()
-const port = process.env.API_PORT ? Number(process.env.API_PORT) : 8080
-
-app.use(express.json())
-app.use('/health', healthRouter)
-
-// Placeholder SSE endpoint (Phase 1 wiring)
-app.get('/events', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('Connection', 'keep-alive')
-  res.flushHeaders()
-  res.write(`data: {"status":"ok"}\n\n`)
-})
-
-// Init Redis eagerly so we fail fast
-createClient()
-  .then(() => {
-    app.listen(port, () => console.log(`[api] listening on :${port}`))
-  })
-  .catch((err) => {
-    console.error('[api] redis init failed:', err)
-    process.exit(1)
-  })
-```
-
-### `services/api/src/redis.ts`
-
-```ts
-import IORedis from 'ioredis'
-
-let redis: IORedis.Redis | null = null
-
-export async function createClient(): Promise<IORedis.Redis> {
-  if (redis) return redis
-  const url = process.env.REDIS_URL || 'redis://localhost:6379'
-  const client = new IORedis(url)
-  await client.ping()
-  redis = client
-  return client
-}
-
-export function getClient(): IORedis.Redis {
-  if (!redis) throw new Error('Redis not initialized')
-  return redis
-}
-```
-
-### `services/api/src/routes/health.ts`
-
-```ts
-import { Router } from 'express'
-import { getClient } from '../redis.js'
-
-const r = Router()
-
-r.get('/', async (_req, res) => {
-  try {
-    const pong = await getClient().ping()
-    res.json({ status: 'ok', redis: pong })
-  } catch (e) {
-    res.status(500).json({ status: 'error', error: String(e) })
-  }
-})
-
-export default r
-```
-
-### `services/api/src/telemetry/placeholder.ts`
-
-```ts
-// Placeholder module for Prometheus/Loki/Tempo client adapters.
-// Phase 1 will flesh out typed clients and polling schedulers here.
-export function notImplemented(): never {
-  throw new Error('Telemetry adapters not implemented yet')
-}
-```
-
-### `services/api/Dockerfile`
-
-```dockerfile
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
-RUN \
-  if [ -f package-lock.json ]; then npm ci; \
-  elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
-  elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
-  else npm i; fi
-
-FROM node:20-alpine AS build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
-
-FROM node:20-alpine
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/dist ./dist
-COPY package.json ./package.json
-RUN npm i --omit=dev
-EXPOSE 8080
-CMD ["node", "dist/index.js"]
-```
-
----
-
-## Root: `.github/workflows/ci.yml`
-
-```yaml
-name: ci
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22.x'
-
-      - name: Build controller
-        working-directory: services/controller
-        run: |
-          go build ./...
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: services/api/package-lock.json
-
-      - name: Install deps (API)
-        working-directory: services/api
-        run: npm ci
-
-      - name: Lint + Build (API)
-        working-directory: services/api
-        run: |
-          npm run build
-
-      - name: Validate docker compose
-        run: |
-          docker compose -f docker-compose.yml config > /dev/null
-```
-
----
-
-## Root: `README.md`
-
-````markdown
-# Sentra — Phase 0–1 Scaffold
-
-## Prereqs
-- Docker & Docker Compose
-- Go 1.22+
-- Node.js 20+
-
-## Setup
-```bash
-cp .env.example .env
-make up
-make logs
-````
-
-Services exposed:
-
-* API: [http://localhost:8080/health](http://localhost:8080/health)
-* Controller health: [http://localhost:8090/health](http://localhost:8090/health)
-* Prometheus: [http://localhost:9090](http://localhost:9090)
-* Loki HTTP: [http://localhost:3100](http://localhost:3100)
-* Tempo: [http://localhost:3200](http://localhost:3200)
-
-## Dev
-
-* API dev mode:
-
-  ```bash
-  cd services/api && npm i && npm run dev
-  ```
-* Controller:
-
-  ```bash
-  cd services/controller && go run .
-  ```
-
-## Next (Phase 1 tasks)
-
-* Wire controller polling to Prometheus/Loki/Tempo and publish rollout-state via Redis pub/sub.
-* API subscribes to Redis and exposes /rollouts + /events.
-* Define initial SLO policy schema in MySQL (tables: services, rollouts, checks, decisions, audits).
-
-````
-
----
-
-## `scripts/dev.sh`
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-cp -n .env.example .env || true
-
-docker compose up -d --build
-
-echo "API -> http://localhost:8080/health"
-echo "CTRL -> http://localhost:8090/health"
-````
+## Source Ownership Summary
+
+| Area | Primary owner | Purpose |
+| --- | --- | --- |
+| `services/api` | Node API | Onboarding, CRUD, SSE, live views, AI evaluation, tenancy, auth |
+| `services/controller` | Go controller | Telemetry reads, decisions, reconciliation, adapters, audit writes |
+| `services/web` | Next.js UI | Operator control room, onboarding, rollout/project/satellite views |
+| `services/ai` | FastAPI advisor | Advisory-only risk scoring and anomaly summaries |
+| `db/migrations` | API and controller shared schema | Persistent control-plane state |
+| `infra` | Local observability stack | Prometheus, Loki, Promtail, Tempo |
+| `scripts` | Repo automation | Verification, reports, packaging, migrations |
+| `reports` | Generated artifacts | AI and regression evidence |
+| `deploy/selfhosted` | Packaging | Production-oriented Compose overlay |
+
+## Current Product Shape
+
+Sentra now has a working local product loop:
+
+1. The UI onboards a project, service, environment, telemetry config, rollout policy, and optional deployment revision.
+2. The API persists control-plane state in MySQL and publishes live updates through Redis/SSE.
+3. The controller reads telemetry, evaluates rollout policy, reconciles traffic state, writes audit history, and publishes current action state.
+4. Runtime adapters support safe simulation by default and guarded direct-apply modes for Kubernetes, Cloud Run, AWS Lambda, and Azure Container Apps.
+5. Satellites can heartbeat, claim delegated reconcile tasks, execute them locally, and report completion centrally.
+6. The AI service and API-side shadow layer expose advisory risk context, benchmark readiness, datasets, scorecards, and candidate model comparison without controlling rollout decisions.

@@ -378,6 +378,7 @@ Validation notes:
 - [x] Added controller-level safety gates for direct Kubernetes apply: `KUBERNETES_APPLY_ENABLED`, `KUBERNETES_ALLOW_MUTATIONS`, and allowlists for contexts and clusters
 - [x] Added per-environment target opt-in through `deployment_target_config.allowDirectApply`
 - [x] Kept `simulation` as the default safe mode for local work
+- [x] Added a stable-capacity guard before initialization and promotion, with Kubernetes `stableDeployment` runtime checks and adapter-neutral `stableCapacity` action evidence
 - [x] Added adapter tests for simulation, guarded `kubectl` dry-run command construction, and blocked mutation paths
 - [x] Added Cloud Run as the first cloud-managed adapter with local `simulation` mode and guarded `gcloud` apply mode
 - [x] Added Cloud Run controller safety gates for project and region allowlists plus explicit mutation enablement
@@ -397,6 +398,7 @@ Validation notes:
 - [x] Added rollout-linked satellite task history to the API and UI so operators can see which satellite executed delegated work
 - [x] Added a satellite detail screen plus rollout-side delegated reconcile action from the UI
 - [x] Added optional bearer auth for API and controller surfaces through environment configuration
+- [x] Added a separate Sentra action-authority token gate for human/operator write routes so read access does not imply rollout authority
 - [x] Added tenant-aware project scoping with `tenant_key` persistence and request-level tenant filtering
 - [x] Added response redaction for stored secret refs and sensitive integration config keys
 - [x] Added validation that rejects inline secret material in persisted integration config and expects secret references instead
@@ -480,7 +482,8 @@ AI should be part of Sentra, but not part of the first production-critical rollo
 - [ ] Promote AI from advisory mode to limited decision support only after it proves reliable
 - [ ] Consider advanced features later such as predictive rollback, canary tuning, and dynamic SLO suggestions
 - [x] Surface explicit stable-vs-candidate traffic state and stable fallback posture in API and UI rollout views
-- [ ] Add remaining rollout hardening for rollback safety, including stable-capacity checks, enforced fallback headroom, and connection-draining support
+- [x] Add first stable-capacity promotion guard for Kubernetes and adapter-neutral capacity evidence in rollout actions
+- [ ] Add remaining rollout hardening for rollback safety, including provider-wide capacity checks, enforced fallback headroom, and connection-draining support
 
 ### Why this is the right order
 

@@ -21,6 +21,7 @@ make logs
 - Fresh local MySQL volumes will auto-run SQL files from `db/migrations/`. If the database already exists, run `make db-migrate` to apply schema changes to the running container.
 - Optional Step 10 security controls now exist:
   - `SENTRA_API_BEARER_TOKEN` protects the API.
+  - `SENTRA_ACTION_TOKEN`, `SENTRA_ACTION_HEADER`, and `SENTRA_ACTION_ACTOR_HEADER` protect human/operator write actions separately from read access.
   - `SENTRA_CONTROLLER_BEARER_TOKEN` protects controller write and telemetry endpoints.
   - `SENTRA_REQUIRE_TENANT`, `SENTRA_DEFAULT_TENANT`, and `SENTRA_TENANT_HEADER` enable tenant-scoped API reads and writes.
 
@@ -100,6 +101,7 @@ Local note:
 - `GET /ai/benchmark` now turns that evaluation data into an explicit promotion-readiness report with pass/fail gates for overlap, resolved outcomes, accuracy, recall, precision, and calibration.
 - The web service proxies API and SSE traffic through `/api/*`, so the browser does not need direct CORS access to the backend services.
 - When API auth is enabled, the web proxy will forward `SENTRA_API_BEARER_TOKEN` and `SENTRA_DEFAULT_TENANT` automatically for same-origin UI requests.
+- When `SENTRA_ACTION_TOKEN` is configured, operator write actions must include `SENTRA_ACTION_HEADER` from a trusted session or auth proxy. Read-only Sentra access is not enough to onboard projects, change integrations or policies, create deployments, or queue delegated reconciles.
 - Project and environment reads now redact stored secret references and sensitive config keys from API responses.
 - Sentra now rejects inline secret-looking keys such as `token`, `password`, `secret`, or `privateKey` in stored integration config and expects secret references instead.
 - Docker Compose now defaults the API AI advisor settings to `SENTRA_AI_ENABLED=true` and `SENTRA_AI_URL=http://ai:8000`, so older local `.env` files still pick up the external advisor service.
@@ -158,12 +160,21 @@ Local note:
 - `POST /rollouts/reconcile` loads deployment state from MySQL, applies a Kubernetes-style traffic action, persists rollout and audit state, and republishes the latest live action through Redis.
 - The current Kubernetes adapter runs in local `simulation` mode by default, so Sentra executes the control-plane loop end to end without requiring a real cluster in local development.
 - Step 10 now adds a guarded `kubectl` mode for Kubernetes targets. It stays off by default and requires both controller-level opt-in and per-environment target opt-in before Sentra will touch a real cluster.
+- Step 10 now also adds stable-capacity promotion guards. Before initialization or promotion, Sentra records a `stableCapacity` check in the action payload and blocks the rollout if the configured stable fallback target cannot be verified.
 - Step 10 also adds Cloud Run as the first cloud-managed adapter. It supports local `simulation` mode plus guarded `gcloud` traffic updates for revision-based rollouts.
 - Step 10 now also adds AWS Lambda alias traffic control. It supports local `simulation` mode plus guarded `aws` CLI alias updates for weighted canaries.
 - Step 10 now also adds Azure Container Apps revision traffic control. It supports local `simulation` mode plus guarded `az` CLI traffic updates for revision-based rollouts.
 - Step 10 now also adds delegated federation. Satellites can heartbeat into the API coordinator, advertise task-worker capability, claim queued reconcile tasks, execute them locally, and report completion centrally.
 - Step 10 now also adds a baseline-aware AI shadow-mode advisory layer. Rollouts are enriched with structured anomaly signals, prediction metadata, persisted advisory history, shadow scorecards, recent-risk drift against their own advisory baseline, a fleet-level `/ai/evaluation` summary, backtest timeline buckets, calibration views, and a persisted primary-vs-candidate model comparison stream, but Sentra still treats that layer as advisory-only.
 - Step 10 now also adds optional bearer auth on controller rollout endpoints so reconcile and evaluation actions can be protected independently from public health checks.
+- Step 10 now also separates Sentra access from rollout authority: the API can require a dedicated action token for human/operator write routes while satellites continue using machine-to-machine API auth.
+
+Authority model:
+- Cloud IAM belongs to Sentra's execution identity, such as a Kubernetes service account, AWS role, Azure managed identity, or GCP service account.
+- Individual users do not need direct cloud IAM to trigger an approved rollout or rollback through Sentra.
+- Users still need Sentra action authority to mutate policies, environments, deployments, or delegated reconcile tasks.
+- Deterministic autonomous rollback is governed by the stored policy and the controller's execution identity, not by a user's personal cloud role.
+- For production, place Sentra behind SSO or an auth proxy that injects `SENTRA_ACTION_HEADER` only for approved operators and records `SENTRA_ACTION_ACTOR_HEADER` for audit context.
 
 Reconcile example:
 
@@ -178,10 +189,24 @@ curl -X POST 'http://localhost:8090/rollouts/reconcile' \
 Direct apply note:
 - Keep `deployment_target_config.mode=simulation` for normal local work.
 - To opt into direct Kubernetes apply, set `deployment_target_config.mode=kubectl`, `deployment_target_config.allowDirectApply=true`, and optionally `deployment_target_config.context`.
+- For Kubernetes runtime capacity checks, set `deployment_target_config.stableDeployment` to the stable deployment Sentra should verify before increasing candidate traffic.
+- Optional stable-capacity tuning can be stored under `deployment_target_config.stableCapacity`, for example:
+  - `minReadyReplicas`
+  - `minAvailableReplicas`
+  - `minAvailablePct`
+  - `assumedReadyReplicas`, `assumedAvailableReplicas`, and `assumedDesiredReplicas` for simulation-only rehearsals
+  - `enabled=false` only for an explicit operator override
 - The controller must also set `KUBERNETES_APPLY_ENABLED=true`.
 - Real cluster mutations still require the second gate `KUBERNETES_ALLOW_MUTATIONS=true`. Otherwise Sentra will only allow `dryRun=true`.
 - `KUBERNETES_ALLOWED_CONTEXTS` and `KUBERNETES_ALLOWED_CLUSTERS` can restrict which targets the controller is allowed to touch.
 - In this Step 10 slice, direct `kubectl` apply supports the ingress canary strategy. Other Kubernetes strategies still stay in simulation mode until their direct-apply contract is defined.
+
+Non-container target note:
+- Sentra does not require a workload to be deployed as a container. The adapter only needs a stable traffic target it can restore.
+- For Cloud Run and Azure Container Apps that target is a stable revision.
+- For AWS Lambda it is a stable alias primary version.
+- For VM, legacy, or external load-balancer targets, a future adapter should map stable capacity to backend pool health, minimum healthy hosts, or load-balancer target health.
+- The current non-Kubernetes adapters validate the stable rollback identity before promotion; runtime capacity depth for each cloud provider is the next adapter-hardening slice.
 
 Cloud Run note:
 - Use `service.adapterType=cloudrun` and `environment.deploymentTargetType=cloudrun`.

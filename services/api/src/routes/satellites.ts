@@ -18,6 +18,7 @@ import {
 } from '../http.js'
 import {
   deploymentBelongsToTenant,
+  getActionActor,
   getRequestTenantKey,
   getTenantKeyForWrite,
 } from '../security.js'
@@ -539,7 +540,7 @@ r.post(
     const satelliteId = parsePositiveInt(req.params.id, 'satelliteId')
     const body = requireBodyObject(req.body)
     const tenantKey = getTenantKeyForWrite(req)
-    const createdBy = getOptionalString(body, 'createdBy')
+    const createdBy = getOptionalString(body, 'createdBy') || getActionActor(req)
     const { deploymentId, payload, taskType } = await buildTaskPayload(body, tenantKey)
 
     const task = await withTransaction(async (connection) => {

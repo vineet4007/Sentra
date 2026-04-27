@@ -39,5 +39,6 @@ bash scripts/smoke-local-stack.sh
 
 - Move real credentials out of `.env` and into a secret manager or workload identity flow
 - Put the web surface behind TLS and your preferred reverse proxy
+- Use SSO or a trusted auth proxy to inject the configured Sentra action-authority header only for approved operators
 - Restrict direct controller and observability endpoints at the network layer
 - Replace local-only example integration values with real cluster or cloud target config

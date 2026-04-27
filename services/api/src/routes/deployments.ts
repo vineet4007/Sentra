@@ -17,6 +17,7 @@ import {
 import {
   assertNoSensitiveKeys,
   assertServiceEnvironmentTenantAccess,
+  getActionActor,
   getRequestTenantKey,
   redactStoredConfig,
 } from '../security.js'
@@ -149,7 +150,7 @@ r.post(
     const environmentId = getRequiredPositiveInt(body, 'environmentId')
     const revision = getRequiredString(body, 'revision')
     const imageRef = getOptionalString(body, 'imageRef')
-    const initiatedBy = getOptionalString(body, 'initiatedBy')
+    const initiatedBy = getOptionalString(body, 'initiatedBy') || getActionActor(req)
     const source = getOptionalString(body, 'source') || 'manual'
     const policyIdInput = getOptionalPositiveInt(body, 'policyId')
     const deploymentMetadata = getOptionalJson(body, 'deploymentMetadata')

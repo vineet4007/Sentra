@@ -38,6 +38,8 @@ type adapterRuntimeTarget struct {
 	Project          string
 	Region           string
 	ServiceName      string
+	StableDeployment string
+	StableWorkload   string
 	StableRevision   string
 	SubscriptionID   string
 	ResourceGroup    string
@@ -48,6 +50,7 @@ type adapterRuntimeTarget struct {
 	DryRun           bool
 	Mode             string
 	AllowDirectApply bool
+	StableCapacity   stableCapacityPolicy
 }
 
 type rolloutActionIntent struct {
@@ -1315,6 +1318,16 @@ func newKubernetesTarget(context deploymentExecutionContext) adapterRuntimeTarge
 			stringFromMap(context.Service.ServiceConfig, "context"),
 			stringFromMap(context.Service.ServiceConfig, "kubeContext"),
 		),
+		StableDeployment: firstNonEmpty(
+			stringFromMap(context.Deployment.Metadata, "stableDeployment"),
+			stringFromMap(context.Environment.DeploymentTargetConfig, "stableDeployment"),
+			stringFromMap(context.Service.ServiceConfig, "stableDeployment"),
+		),
+		StableWorkload: firstNonEmpty(
+			stringFromMap(context.Deployment.Metadata, "stableWorkload"),
+			stringFromMap(context.Environment.DeploymentTargetConfig, "stableWorkload"),
+			stringFromMap(context.Service.ServiceConfig, "stableWorkload"),
+		),
 		DryRun: boolFromMap(context.Environment.DeploymentTargetConfig, "dryRun", true),
 		Mode: firstNonEmpty(
 			stringFromMap(context.Environment.DeploymentTargetConfig, "mode"),
@@ -1325,6 +1338,7 @@ func newKubernetesTarget(context deploymentExecutionContext) adapterRuntimeTarge
 			"allowDirectApply",
 			boolFromMap(context.Environment.DeploymentTargetConfig, "directApply", false),
 		),
+		StableCapacity: stableCapacityPolicyFromContext(context),
 	}
 
 	if target.Namespace == "" {
@@ -1332,6 +1346,12 @@ func newKubernetesTarget(context deploymentExecutionContext) adapterRuntimeTarge
 			stringFromMap(context.Service.ServiceConfig, "namespace"),
 			"default",
 		)
+	}
+	if target.StableDeployment == "" {
+		target.StableDeployment = firstNonEmpty(target.StableWorkload, target.Deployment)
+	}
+	if target.StableWorkload == "" {
+		target.StableWorkload = target.StableDeployment
 	}
 	if target.Mode == "" {
 		target.Mode = "simulation"
@@ -1375,6 +1395,7 @@ func newCloudRunTarget(context deploymentExecutionContext) adapterRuntimeTarget 
 			"allowDirectApply",
 			boolFromMap(context.Environment.DeploymentTargetConfig, "directApply", false),
 		),
+		StableCapacity: stableCapacityPolicyFromContext(context),
 	}
 
 	if target.Mode == "" {
@@ -1421,6 +1442,7 @@ func newLambdaTarget(context deploymentExecutionContext) adapterRuntimeTarget {
 			"allowDirectApply",
 			boolFromMap(context.Environment.DeploymentTargetConfig, "directApply", false),
 		),
+		StableCapacity: stableCapacityPolicyFromContext(context),
 	}
 
 	if target.Mode == "" {
@@ -1467,6 +1489,7 @@ func newContainerAppsTarget(context deploymentExecutionContext) adapterRuntimeTa
 			"allowDirectApply",
 			boolFromMap(context.Environment.DeploymentTargetConfig, "directApply", false),
 		),
+		StableCapacity: stableCapacityPolicyFromContext(context),
 	}
 
 	if target.Mode == "" {
