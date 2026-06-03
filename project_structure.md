@@ -19,6 +19,7 @@ sentra/
 |-- VERSION                Locked release version
 |-- README.md              Main setup and operational reference
 |-- IMPLEMENTATION_PLAN.md Working build plan and status checklist
+|-- OPERATIONS_RUNBOOK.md  Production-adjacent operational safeguards and runbook
 |-- SENTRA_USER_GUIDE.md   Frontend operator guide
 |-- architecture.md        Multi-cloud architecture direction
 `-- *.md                   Product, safety, telemetry, and structure docs
@@ -48,6 +49,7 @@ services/api/
     |-- redis.ts                 Redis client wiring
     |-- events.ts                Rollout event publishing/streaming helpers
     |-- http.ts                  Shared HTTP helpers
+    |-- middleware.ts            CORS and in-process API rate limiting
     |-- security.ts              API auth, tenancy, and redaction helpers
     |-- telemetry.ts             API-side telemetry validation helpers
     |-- rollout-safety.ts        Stable fallback and rollout policy validation
@@ -78,6 +80,7 @@ Current API responsibilities:
 - AI advisory history, evaluation, benchmark, dataset, and candidate comparison surfaces
 - tenant-aware reads and writes when tenancy is enabled
 - optional action-authority checks for human/operator write routes
+- configurable CORS, JSON body limits, and in-process rate limiting
 - secret redaction and inline secret rejection for integration config
 
 ### `services/controller`
@@ -209,7 +212,8 @@ db/
     |-- 003_federated_satellites.sql
     |-- 004_satellite_tasks.sql
     |-- 005_ai_shadow_advisories.sql
-    `-- 006_ai_advisory_series.sql
+    |-- 006_ai_advisory_series.sql
+    `-- 007_read_model_indexes.sql
 ```
 
 The migrations define the persistent control plane:
@@ -218,6 +222,7 @@ The migrations define the persistent control plane:
 - tenant scoping and secret-reference support
 - satellite registry and delegated task queue
 - AI advisory history, advisory series, and model comparison data
+- read-model indexes for common rollout, audit, incident, satellite, and AI queries
 
 Fresh MySQL volumes apply these migrations automatically through Docker. Existing local databases can be migrated with `make db-migrate`.
 
@@ -316,6 +321,7 @@ README.md                  Main setup, API, UI, controller, verification, and pa
 IMPLEMENTATION_PLAN.md     Working roadmap and completion checklist
 SENTRA_USER_GUIDE.md       First-time frontend and operator guide
 ROLLBACK_SAFETY_POLICY.md  Stable fallback and rollback safety expectations
+OPERATIONS_RUNBOOK.md      TLS, request guardrails, graceful shutdown, backup/restore, health checks
 TELEMETRY_REQUIREMENTS.md  Prometheus, Loki, Tempo, label, and query contract
 architecture.md            Multi-cloud architecture and topology direction
 PROJECT_OVERVIEW.md        Product overview

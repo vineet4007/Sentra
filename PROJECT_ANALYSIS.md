@@ -12,10 +12,10 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
 
 ## 🔴 Critical Issues
 
-### 1. **No Tests for API Service** 
-- **Problem:** Controller and AI services have tests; API service (`services/api`) has ZERO tests
-- **Impact:** API is the central hub (routes, auth, database, security)—untested core
-- **Risk:** High regression risk, security vulnerabilities may slip through
+### 1. **API Test Coverage Is Still Too Shallow**
+- **Current:** API now has initial tests for CORS, rate limiting, bearer auth, tenant scope, and action authority
+- **Impact:** API is the central hub (routes, auth, database, security), and route/database paths are still lightly tested
+- **Risk:** High regression risk remains until core routes and transactions are covered
 - **Recommendation:** Add unit tests for all API routes (health, projects, policies, deployments, rollouts)
   - Target: 80%+ coverage on critical paths (auth, policy validation, security)
   - Add integration tests for database transactions, tenancy isolation
@@ -28,13 +28,12 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
   - Form validation for onboarding flow
   - WebSocket/SSE message handling
 
-### 3. **Using "latest" Package Versions in Web**
-- **Problem:** Web `package.json` pins "latest" for Next.js, React, TypeScript, types
-- **Risk:** Breaking changes on next `npm install`, unpredictable builds
+### 3. **Web Dependency Version Drift**
+- **Current:** Web dependencies are pinned to the versions already locked in `package-lock.json`
+- **Risk:** Future upgrades still need controlled review because Next/React changes can affect build output and runtime behavior
 - **Recommendation:** 
-  - Pin specific versions: `"next": "^14.2.0"`, `"react": "^18.3.0"`, etc.
-  - Run `npm install` to generate `package-lock.json`, commit it
   - Add Dependabot or similar for automated version bumps with CI validation
+  - Review framework upgrades intentionally instead of relying on broad ranges
 
 ### 4. **Minimal Dependencies in AI Service**
 - **Problem:** Only FastAPI + uvicorn—missing logging, validation, ML libraries
@@ -52,32 +51,28 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
   - Document rollback procedure for failed migrations
   - Add `make db-migrate-status` and `make db-rollback` commands
 
-### 6. **Missing Cloud Provider Integrations** (Per IMPLEMENTATION_PLAN.md)
-- **Status:** AWS, Azure, GCP integration endpoints not implemented
-- **Current:** Only Kubernetes-style local simulation works
+### 6. **Cloud Provider Adapter Hardening Still Needs Depth**
+- **Status:** Kubernetes, Cloud Run, AWS Lambda, and Azure Container Apps adapters exist with guarded direct-apply modes
+- **Current:** Deep provider-specific capacity checks and broader adapter integration tests are still limited
 - **Recommendation:**
-  - Prioritize AWS Lambda + ECS adapters (most demand)
-  - Create adapter interface clearly in Go
-  - Add integration tests for each cloud adapter
+  - Add provider-specific stable-capacity checks beyond rollback identity validation
+  - Add integration tests for each cloud adapter mode
+  - Continue with the next adapter only after hardening the current ones
 
 ---
 
 ## 🟠 High-Priority Issues
 
-### 7. **No CI/CD Pipeline**
-- **Problem:** No GitHub Actions, GitLab CI, or similar
+### 7. **CI/CD Pipeline Needs Hardening**
+- **Current:** A GitHub Actions workflow now runs API lint/tests/build, controller tests/build, web lint/build, AI tests, and Compose config validation
 - **Missing:**
-  - Automated linting + type checking
-  - Test execution on PR
-  - Build verification
+  - Docker image builds on PR
   - Security scanning (SAST)
+  - Coverage reporting
 - **Recommendation:**
-  - Create `.github/workflows/ci.yml`:
-    - Lint (ESLint for TS/JS, golangci-lint for Go)
-    - Test (npm test, go test ./...)
-    - Build Docker images
-    - Run smoke tests
-    - Upload coverage to Codecov
+  - Add Docker image build jobs once CI runtime cost is acceptable
+  - Add SAST/dependency scanning
+  - Upload coverage for API, controller, web, and AI tests
 
 ### 8. **Inconsistent Error Handling & Logging**
 - **Problem:**
@@ -91,42 +86,29 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
   - Add `ApiError.details` fields for structured error context
   - Filter sensitive keys in logs (already has `SENSITIVE_KEY_PATTERNS` in security.ts—expand usage)
 
-### 9. **Missing CORS Configuration**
-- **Problem:** No visible CORS setup in Express API
-- **Risk:** Web UI at localhost:3000 cannot call API at localhost:8080 safely in some browsers
+### 9. **CORS Configuration Needs Production Review**
+- **Current:** Configurable built-in CORS allowlisting is now present in the Express API
+- **Remaining Risk:** Production deployments still need the correct public origin and private API/controller networking
 - **Recommendation:**
-  ```ts
-  // services/api/src/index.ts
-  import cors from 'cors'
-  app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-    credentials: true
-  }))
-  ```
+  - Set `SENTRA_CORS_ORIGINS` to the public Sentra web origin
+  - Keep direct API/controller access private when the web proxy is the browser entrypoint
+  - Add secure-header middleware or reverse-proxy rules with the TLS setup
 
-### 10. **No Rate Limiting on API Routes**
-- **Problem:** Express routes have no rate limiting middleware
-- **Risk:** Brute force attacks on auth endpoints, DoS
+### 10. **Rate Limiting Needs Distributed Enforcement**
+- **Current:** Basic in-process API-wide rate limiting now exists
+- **Remaining Risk:** Multi-replica API deployments need gateway or shared-store rate limiting
 - **Recommendation:**
-  - Add `express-rate-limit` middleware
-  - Different limits per endpoint (e.g., 10 req/min for login, 1000 req/min for read API)
+  - Add edge/gateway rate limits for production
+  - Add per-endpoint limits for sensitive write paths
+  - Consider Redis-backed limits if the API runs multiple replicas
 
 ### 11. **Dockerfile Issues**
-- **API:** Missing `config/` directory in COPY statement (may be needed at runtime)
-- **All:** No health check directives
-- **Controller:** Missing USER directive (running as root)
+- **Current:** Runtime images now include health checks and non-root users
+- **Remaining:** Minimal-base review and provider CLI image strategy still need production hardening
 - **Recommendation:**
-  ```dockerfile
-  # API - also copy config if needed
-  COPY --from=build /app/config ./config 2>/dev/null || true
-  
-  # All services - add non-root user
-  RUN addgroup -g 1001 -S appgroup && adduser -u 1001 -S appuser -G appgroup
-  USER appuser
-  
-  # Add HEALTHCHECK
-  HEALTHCHECK --interval=10s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1
-  ```
+  - Keep health checks enabled in packaged images
+  - Decide whether direct-apply controller images should include cloud CLIs or use sidecar/toolbox execution
+  - Continue trimming runtime image surfaces
 
 ### 12. **No Database Query Optimization**
 - **Problem:** Raw SQL queries, no ORM, no visible indexing strategy
@@ -182,18 +164,12 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
   })
   ```
 
-### 17. **No Graceful Shutdown**
-- **Problem:** Services kill immediately on SIGTERM (lose in-flight requests)
+### 17. **Graceful Shutdown Needs Worker-Drain Tests**
+- **Current:** API and controller now handle SIGTERM/SIGINT and close core clients/background loops
+- **Remaining Risk:** In-flight rollout reconciliation needs explicit worker-drain validation
 - **Recommendation:**
-  ```ts
-  // Implement graceful shutdown
-  process.on('SIGTERM', () => {
-    app.close(() => {
-      pool.end()
-      process.exit(0)
-    })
-  })
-  ```
+  - Add shutdown tests for API SSE streams, Redis/MySQL cleanup, and controller background loops
+  - Add a controller reconcile drain test before calling the shutdown path production-complete
 
 ### 18. **Telemetry Query Error Handling**
 - **Problem:** Telemetry validation errors logged but not bubbled to UI properly
@@ -203,18 +179,13 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
   - Show telemetry error rate on dashboard
   - Alert if 2+ sources fail
 
-### 19. **No Backup/Restore Strategy**
-- **Problem:** MySQL data in Docker volume; no documented backup
-- **Risk:** Data loss on volume deletion
+### 19. **Backup/Restore Strategy Needs Production Depth**
+- **Current:** Basic `make db-backup` and `make db-restore BACKUP_FILE=...` commands exist
+- **Remaining Risk:** No volume snapshot strategy or point-in-time recovery process yet
 - **Recommendation:**
-  ```bash
-  # Add to Makefile
-  db-backup:
-    docker compose exec mysql mysqldump -u$(MYSQL_USER) -p$(MYSQL_PASSWORD) $(MYSQL_DATABASE) > backup.sql
-  
-  db-restore:
-    docker compose exec -T mysql mysql -u$(MYSQL_USER) -p$(MYSQL_PASSWORD) $(MYSQL_DATABASE) < backup.sql
-  ```
+  - Schedule and test recurring backups for packaged deployments
+  - Add volume snapshot guidance and PITR documentation
+  - Add restore verification to an isolated environment
 
 ### 20. **Tenant Isolation Not Fully Validated**
 - **Problem:** Tenant security checks exist but not consistently applied everywhere
@@ -287,7 +258,7 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
 ## Recommended Implementation Order
 
 1. **Phase 1 (Weeks 1-2):** Add tests for API + Web (critical) + CI/CD
-2. **Phase 2 (Weeks 3-4):** Fix Docker, add rate limiting, improve logging
+2. **Phase 2 (Weeks 3-4):** Finish Docker base-image review, add distributed rate limiting, improve logging
 3. **Phase 3 (Weeks 5-6):** Cloud adapter implementations, security hardening
 4. **Phase 4 (Weeks 7+):** Performance optimization, monitoring, advanced features
 
@@ -937,6 +908,6 @@ These are valuable but less critical:
 1. Review this analysis with team
 2. Prioritize issues by business impact + effort
 3. Create GitHub issues for each recommendation
-4. Set up CI/CD pipeline first (unblocks safe refactoring)
-5. Add test harnesses for API and Web
-6. Begin cloud adapter implementations in parallel
+4. Extend CI/CD with image build, security scanning, and coverage
+5. Expand test harnesses for API and Web
+6. Begin cloud adapter hardening in parallel

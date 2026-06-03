@@ -17,6 +17,7 @@ sentra/
 |-- docker-compose.yml
 |-- README.md
 |-- IMPLEMENTATION_PLAN.md
+|-- OPERATIONS_RUNBOOK.md
 |-- PROJECT_AIMS.md
 |-- PROJECT_OVERVIEW.md
 |-- ROLLBACK_SAFETY_POLICY.md
@@ -34,7 +35,8 @@ sentra/
 |       |-- 003_federated_satellites.sql
 |       |-- 004_satellite_tasks.sql
 |       |-- 005_ai_shadow_advisories.sql
-|       `-- 006_ai_advisory_series.sql
+|       |-- 006_ai_advisory_series.sql
+|       `-- 007_read_model_indexes.sql
 |-- deploy/
 |   `-- selfhosted/
 |       |-- .env.production.example
@@ -112,6 +114,7 @@ sentra/
     |       |-- events.ts
     |       |-- http.ts
     |       |-- index.ts
+    |       |-- middleware.ts
     |       |-- redis.ts
     |       |-- rollout-safety.ts
     |       |-- security.ts

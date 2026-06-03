@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs build fmt lint ci db-migrate smoke integration multiservice federation verify regression package ai-test ai-benchmark ai-dataset ai-train-profile
+.PHONY: up down logs build fmt lint ci db-migrate db-backup db-restore smoke integration multiservice federation verify regression package ai-test ai-benchmark ai-dataset ai-train-profile
 
 up:
 	docker compose up -d --build
@@ -37,6 +37,14 @@ ci: fmt build
 
 db-migrate:
 	bash scripts/apply-mysql-migrations.sh
+
+db-backup:
+	@mkdir -p backups
+	docker compose exec -T mysql sh -lc 'mysqldump -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE"' > backups/sentra-$$(date -u +%Y%m%dT%H%M%SZ).sql
+
+db-restore:
+	@test -n "$(BACKUP_FILE)" || (echo "Set BACKUP_FILE=path/to/backup.sql" && exit 1)
+	docker compose exec -T mysql sh -lc 'mysql -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE"' < "$(BACKUP_FILE)"
 
 smoke:
 	bash scripts/smoke-local-stack.sh

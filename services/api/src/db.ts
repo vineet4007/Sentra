@@ -80,6 +80,14 @@ export async function createDatabasePool(): Promise<Pool> {
   return nextPool
 }
 
+export async function closeDatabasePool(): Promise<void> {
+  const currentPool = pool
+  pool = null
+  if (currentPool) {
+    await currentPool.end()
+  }
+}
+
 export function getDatabasePool(): Pool {
   if (!pool) throw new Error('MySQL not initialized')
   return pool

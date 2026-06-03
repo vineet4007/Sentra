@@ -16,6 +16,7 @@ make logs
 - `.env.example` contains working local defaults plus placeholders for future project, deployment, and telemetry integration.
 - First-time frontend walkthrough and glossary: [SENTRA_USER_GUIDE.md](/Users/vineetchauhan/Desktop/AshSan/Sentra/SENTRA_USER_GUIDE.md)
 - Rollback behavior and traffic-safety expectations: [ROLLBACK_SAFETY_POLICY.md](/Users/vineetchauhan/Desktop/AshSan/Sentra/ROLLBACK_SAFETY_POLICY.md)
+- Production-adjacent operational safeguards: [OPERATIONS_RUNBOOK.md](/Users/vineetchauhan/Desktop/AshSan/Sentra/OPERATIONS_RUNBOOK.md)
 - Safe in local `.env`: service ports, local URLs, project names, service names, environment names, and dummy integration values.
 - Do not keep real cloud credentials, API keys, or tokens in Git. For shared or production setups, use a secret manager or workload identity instead.
 - Fresh local MySQL volumes will auto-run SQL files from `db/migrations/`. If the database already exists, run `make db-migrate` to apply schema changes to the running container.
@@ -24,6 +25,7 @@ make logs
   - `SENTRA_ACTION_TOKEN`, `SENTRA_ACTION_HEADER`, and `SENTRA_ACTION_ACTOR_HEADER` protect human/operator write actions separately from read access.
   - `SENTRA_CONTROLLER_BEARER_TOKEN` protects controller write and telemetry endpoints.
   - `SENTRA_REQUIRE_TENANT`, `SENTRA_DEFAULT_TENANT`, and `SENTRA_TENANT_HEADER` enable tenant-scoped API reads and writes.
+  - `SENTRA_CORS_ORIGINS`, `SENTRA_RATE_LIMIT_*`, `SENTRA_TRUST_PROXY`, and `SENTRA_JSON_BODY_LIMIT` add browser/API request guardrails.
 
 Services exposed:
 - Web UI: http://localhost:3000

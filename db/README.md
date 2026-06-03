@@ -7,6 +7,7 @@ This folder holds the control-plane schema for Sentra.
 - SQL files in `db/migrations/` are mounted into MySQL at `/docker-entrypoint-initdb.d` for fresh local databases.
 - If the MySQL volume already exists, run `make db-migrate` to apply the same migrations to the running container.
 - Migrations are written to be safe to re-run locally with `CREATE TABLE IF NOT EXISTS` and `INSERT IGNORE`.
+- Later index migrations are tracked through `schema_migrations` and are intended to run once per database.
 
 ## Service Ownership
 

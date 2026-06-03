@@ -41,6 +41,19 @@ export function sendErrorResponse(res: Response, error: unknown): void {
     return
   }
 
+  if (isRecord(error) && (typeof error.status === 'number' || typeof error.statusCode === 'number')) {
+    const status = Number(error.status || error.statusCode)
+    if (Number.isInteger(status) && status >= 400 && status < 500) {
+      res.status(status).json({
+        ok: false,
+        error: {
+          message: typeof error.message === 'string' ? error.message : 'Bad request',
+        },
+      })
+      return
+    }
+  }
+
   if (isRecord(error) && error.code === 'ER_DUP_ENTRY') {
     res.status(409).json({
       ok: false,
@@ -197,4 +210,3 @@ export function hasField(obj: ObjectBody, key: string): boolean {
 export function isRecord(value: unknown): value is ObjectBody {
   return typeof value === 'object' && value !== null
 }
-

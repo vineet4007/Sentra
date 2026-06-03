@@ -43,7 +43,7 @@
 - [x] Secret references (not inline secrets)
 - [x] Label mapping for metrics/logs/traces
 
-**DB Migrations Implemented:** 6
+**DB Migrations Implemented:** 7
 ```
 001_initial_control_plane.sql      ✅
 002_tenant_security.sql             ✅
@@ -51,6 +51,7 @@
 004_satellite_tasks.sql              ✅
 005_ai_shadow_advisories.sql         ✅
 006_ai_advisory_series.sql           ✅
+007_read_model_indexes.sql           ✅
 ```
 
 **Status:** Full schema supports all announced features
@@ -211,7 +212,7 @@ sentra:rollout:live:index      (all deployment IDs)
 **Test Coverage:**
 - Go controller: ~75% coverage (20+ test files)
 - Python AI: Basic tests (test_advisor.py)
-- Node API: 0% coverage ⚠️
+- Node API: First middleware and security tests added ⚠️
 - Next.js Web: 0% coverage ⚠️
 
 **Status:** Good backend coverage; frontend needs tests
@@ -323,6 +324,9 @@ sentra:rollout:live:index      (all deployment IDs)
 - [x] Tenant isolation in queries
 - [x] Response redaction (secret refs, sensitive keys)
 - [x] Inline secret rejection (validation)
+- [x] Configurable CORS allowlist
+- [x] In-process API rate limiting
+- [x] JSON body size guard
 - [x] Constant-time token comparison
 - [x] Sensitive key pattern detection
 - [x] Request/response logging redaction
@@ -421,14 +425,17 @@ deploy/selfhosted/README.md
 
 ---
 
-#### 2. **API Test Coverage** ❌ NOT DONE
+#### 2. **API Test Coverage** 🟡 PARTIAL
+- [x] First Node test runner wiring
+- [x] Middleware tests for CORS and rate limiting
+- [x] Security middleware tests for bearer auth, tenant scope, and action authority
 - [ ] Unit tests for API routes
 - [ ] Integration tests for auth flows
 - [ ] Database transaction tests
 - [ ] Tenant isolation tests
 - [ ] Error handling tests
 
-**Current Status:** 0% coverage
+**Current Status:** Initial guardrail tests exist; core route and DB coverage still missing
 
 **Impact:** High risk of regressions; untested core
 
@@ -447,18 +454,20 @@ deploy/selfhosted/README.md
 
 ---
 
-#### 4. **CI/CD Pipeline** ❌ NOT DONE
-- [ ] GitHub Actions workflow
-- [ ] Lint checks (ESLint, golangci-lint)
-- [ ] Test execution (npm test, go test)
-- [ ] Build verification
+#### 4. **CI/CD Pipeline** 🟡 PARTIAL
+- [x] GitHub Actions workflow
+- [x] API lint, tests, and build
+- [x] Controller tests and build
+- [x] Web lint and build
+- [x] AI unit tests
+- [x] Docker Compose config validation
 - [ ] Docker image build
 - [ ] Security scanning (SAST)
 - [ ] Coverage reporting
 
-**Current Status:** None
+**Current Status:** First CI workflow exists under `.github/workflows/ci.yml`
 
-**Impact:** No automated quality gates; manual verification only
+**Impact:** Baseline automated quality gates exist; image build, scanning, and coverage still need to be added
 
 ---
 
@@ -476,27 +485,28 @@ deploy/selfhosted/README.md
 
 ---
 
-#### 6. **Rate Limiting** ❌ NOT DONE
-- [ ] express-rate-limit middleware
+#### 6. **Rate Limiting** 🟡 PARTIAL
+- [x] Basic in-process API rate limiting
+- [x] Configurable window and request cap
+- [ ] Shared/distributed rate limiting for multi-replica API deployments
 - [ ] Per-endpoint rate limits
 - [ ] Brute force protection
-- [ ] DoS mitigation
 
-**Current Status:** No rate limiting
+**Current Status:** Basic API-wide limiter exists; production gateways should still enforce edge limits
 
-**Impact:** Vulnerable to attacks; no request throttling
+**Impact:** Improved local and single-replica protection; still needs gateway/distributed enforcement at scale
 
 ---
 
-#### 7. **Database Query Optimization** ❌ NOT DONE
-- [ ] Query indexing strategy
+#### 7. **Database Query Optimization** 🟡 PARTIAL
+- [x] First read-model query indexes
 - [ ] N+1 query detection
 - [ ] ORM (Prisma/sqlc) consideration
 - [ ] Slow query logging
 
-**Current Status:** Raw SQL; no visible index strategy
+**Current Status:** Raw SQL with a first query-index migration; deeper query profiling remains
 
-**Impact:** Performance degradation at scale
+**Impact:** Common list/detail queries have better index coverage; scale testing still needed
 
 ---
 
@@ -560,52 +570,53 @@ deploy/selfhosted/README.md
 
 ---
 
-#### 13. **Graceful Shutdown** ❌ NOT DONE
-- [ ] SIGTERM handler (Node)
-- [ ] SIGTERM handler (Go)
-- [ ] In-flight request completion
-- [ ] Connection pool draining
-- [ ] Persistent state finalization
+#### 13. **Graceful Shutdown** 🟡 PARTIAL
+- [x] SIGTERM/SIGINT handler (Node API)
+- [x] SIGTERM/SIGINT handler (Go controller)
+- [x] API Redis/MySQL client cleanup
+- [x] Controller background loop cancellation
+- [ ] Deeper in-flight rollout finalization guarantees
+- [ ] Full worker-drain testing
 
-**Current Status:** Immediate kill on SIGTERM
+**Current Status:** Basic graceful shutdown exists; deeper rollout finalization tests are still needed
 
-**Impact:** Data loss; incomplete requests
+**Impact:** Lower shutdown risk; still needs hardening for production rollout workers
 
 ---
 
-#### 14. **Database Backup/Restore** ❌ NOT DONE
-- [ ] Backup automation (mysqldump)
-- [ ] Restore procedures
+#### 14. **Database Backup/Restore** 🟡 PARTIAL
+- [x] Basic `make db-backup` automation with `mysqldump`
+- [x] Basic `make db-restore BACKUP_FILE=...` restore flow
 - [ ] Volume snapshot strategy
 - [ ] Point-in-time recovery docs
 
-**Current Status:** No documented backup strategy
+**Current Status:** First Compose-level backup/restore workflow exists
 
-**Impact:** Data loss risk on volume deletion
+**Impact:** Better local/self-hosted recovery path; production snapshot and PITR strategy still needed
 
 ---
 
-#### 15. **CORS Configuration** ❌ NOT DONE
-- [ ] express-cors middleware
-- [ ] Origin whitelisting
-- [ ] Credential handling
-- [ ] Preflight optimization
+#### 15. **CORS Configuration** ✅ DONE
+- [x] Origin whitelisting
+- [x] Credential handling
+- [x] Preflight handling
+- [x] Production env template support
 
-**Current Status:** No CORS headers
+**Current Status:** Configurable built-in CORS middleware
 
-**Impact:** Cross-origin requests may fail
+**Impact:** Cross-origin deployments can be explicitly allowed
 
 ---
 
 #### 16. **Dockerfile Hardening** ❌ PARTIAL
 - [x] Multi-stage builds (all services)
-- [ ] Non-root user (missing in Controller)
-- [ ] Health check directives (missing)
+- [x] Non-root users for API, controller, web, and AI images
+- [x] Health check directives for API, controller, web, and AI images
 - [ ] Minimal base images
 
-**Current Status:** Alpine used; no health checks; root user in some
+**Current Status:** Health checks and non-root runtime users are in place; minimal-base review remains
 
-**Impact:** Security risk; no container health detection
+**Impact:** Lower container runtime risk; base image minimization still pending
 
 ---
 
@@ -637,11 +648,11 @@ deploy/selfhosted/README.md
 
 | Category | Missing | Severity |
 |----------|---------|----------|
-| Testing | API, Web, CI/CD | 🔴 Critical |
+| Testing | API route coverage, Web coverage, CI image/scanning/coverage gates | 🔴 Critical |
 | Observability | Structured logging, metrics | 🟠 High |
-| Security | HTTPS, request signing, CORS | 🟠 High |
-| Operations | Backup, graceful shutdown, rate limiting | 🟠 High |
-| Performance | Query optimization, indexes | 🟡 Medium |
+| Security | HTTPS, request signing, distributed edge rate limits | 🟠 High |
+| Operations | Backup snapshots/PITR, deeper worker-drain shutdown | 🟠 High |
+| Performance | Query profiling, N+1 review, slow-query logging | 🟡 Medium |
 | Documentation | OpenAPI, advanced features | 🟡 Medium |
 | AI Maturity | Dataset quality, model isolation | 🟡 Medium |
 
@@ -670,22 +681,22 @@ OVERALL:                      ██████████████░░�
 ## Recommended Next Steps (By Priority)
 
 ### 🔴 Critical (Weeks 1-2)
-1. **Add API test suite** (unit + integration)
-2. **Add CI/CD pipeline** (GitHub Actions)
+1. **Expand API test suite** (routes + unit + integration)
+2. **Extend CI/CD pipeline** (Docker image build, SAST, coverage)
 3. **Add Web test coverage** (Jest component tests)
-4. **Fix Dockerfile security** (non-root, health checks)
+4. **Finish Dockerfile base-image review** (minimal runtime images)
 
 ### 🟠 High (Weeks 3-4)
-5. **Implement rate limiting** (express-rate-limit)
+5. **Add distributed or gateway rate limiting** for multi-replica deployments
 6. **Add structured logging** (pino/zap)
-7. **Implement CORS** (express-cors)
-8. **Add database indexes** (query optimization)
+7. **Add production HTTPS and secure-header guidance**
+8. **Profile database queries and tune remaining indexes**
 
 ### 🟡 Medium (Weeks 5-6)
 9. **OpenAPI documentation** (Swagger)
-10. **Graceful shutdown** handlers
+10. **Deepen graceful shutdown tests and worker-drain guarantees**
 11. **Request signing** (satellite security)
-12. **Backup/restore** automation
+12. **Backup snapshot and point-in-time recovery strategy**
 
 ### 🟢 Low (Weeks 7+)
 13. **Improve AI dataset quality**
@@ -711,7 +722,7 @@ OVERALL:                      ██████████████░░�
 - **Lines of Code:** ~15,000+ (Go: 5000+, Node: 4000+, Python: 500+)
 - **Database Tables:** 12 (plus schema_migrations)
 - **API Routes:** 25+
-- **Test Files:** 24 (all Go; 0 for Node/React)
+- **Test Files:** 26+ (Go, Python AI, first Node API tests; 0 for React)
 - **Docker Services:** 8 (mysql, redis, prometheus, loki, tempo, promtail, api, controller, ai, web)
 - **Deployment Adapters:** 4 (Kubernetes, Lambda, Cloud Run, Azure Container Apps)
 - **Configuration Migrations:** 6
@@ -721,19 +732,17 @@ OVERALL:                      ██████████████░░�
 ## Risk Assessment
 
 ### High Risk
-- ❌ No API tests → untested critical path
-- ❌ No CI/CD → no automated quality gates
+- ⚠️ API tests are still shallow → critical route coverage remains missing
+- ⚠️ CI/CD lacks image build, SAST, and coverage gates
 - ❌ No structured logging → hard to troubleshoot production issues
-- ❌ No rate limiting → vulnerable to attacks
+- ⚠️ Only in-process rate limiting → needs edge/distributed enforcement for scale
 
 ### Medium Risk
-- ⚠️ No database indexes → performance degradation at scale
-- ⚠️ No graceful shutdown → data loss risk
-- ⚠️ Root user in Docker → security vulnerability
+- ⚠️ First indexes exist, but slow-query profiling is still missing
+- ⚠️ Graceful shutdown still needs worker-drain validation
+- ⚠️ Docker runtime users are non-root, but minimal-base hardening remains
 - ⚠️ AI data mostly synthetic → low confidence in predictions
 
 ### Low Risk
 - ℹ️ No HTTPS guide → can be documented quickly
-- ℹ️ No CORS → affects SPA deployments only
 - ℹ️ No OpenAPI → no SDK support yet (acceptable for beta)
-

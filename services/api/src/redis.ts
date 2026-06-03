@@ -11,6 +11,14 @@ export async function createClient(): Promise<Redis> {
   return client
 }
 
+export async function closeClient(): Promise<void> {
+  const currentClient = redis
+  redis = null
+  if (currentClient) {
+    await currentClient.quit()
+  }
+}
+
 export function getClient(): Redis {
   if (!redis) throw new Error('Redis not initialized')
   return redis

@@ -13,6 +13,7 @@ bin/
 
 # Env
 .env
+backups/
 
 # OS / editor
 .DS_Store
@@ -23,4 +24,3 @@ bin/
 
 # Coverage
 coverage/
-
