@@ -8,76 +8,270 @@ on:
       - develop
       - 'codex/**'
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   api:
     name: API
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         working-directory: services/api
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: services/api/package-lock.json
+      
       - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+      
+      - name: Lint
+        run: npm run lint
+      
+      - name: Run Tests
+        run: npm test
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/api
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/api-image.tar
+      
+      - name: Load Docker image
+        run: docker load --input /tmp/api-image.tar
+      
+      - name: Run Trivy vulnerability scan on API image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-api.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-api.sarif'
+          category: 'trivy-api'
 
   controller:
     name: Controller
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         working-directory: services/controller
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
           cache-dependency-path: services/controller/go.sum
-      - run: go test ./...
-      - run: go build -o /tmp/sentra-controller
+      
+      - name: Run Tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+      
+      - name: Build
+        run: go build -o /tmp/sentra-controller
+      
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.out
+          flags: controller
+          name: controller-coverage
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/controller
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/controller:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/controller-image.tar
+      
+      - name: Load Docker image
+        run: docker load --input /tmp/controller-image.tar
+      
+      - name: Run Trivy vulnerability scan on Controller image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/controller:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-controller.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-controller.sarif'
+          category: 'trivy-controller'
 
   web:
     name: Web
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         working-directory: services/web
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: services/web/package-lock.json
+      
       - run: npm ci
-      - run: npm run lint
-      - run: npm run build
+      
+      - name: Lint
+        run: npm run lint
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/web
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/web:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/web-image.tar
+      
+      - name: Load Docker image
+        run: docker load --input /tmp/web-image.tar
+      
+      - name: Run Trivy vulnerability scan on Web image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/web:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-web.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-web.sarif'
+          category: 'trivy-web'
 
   ai:
     name: AI
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         working-directory: services/ai
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
+      
       - run: pip install -r requirements.txt
-      - run: python -m unittest discover -s tests
+      
+      - name: Run Tests
+        run: python -m unittest discover -s tests
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/ai
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/ai:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/ai-image.tar
+      
+      - name: Load Docker image
+        run: docker load --input /tmp/ai-image.tar
+      
+      - name: Run Trivy vulnerability scan on AI image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/ai:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-ai.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-ai.sarif'
+          category: 'trivy-ai'
 
   compose:
     name: Compose Config
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cp .env.example .env
-      - run: docker compose config
+      
+      - name: Copy environment
+        run: cp .env.example .env
+      
+      - name: Validate Docker Compose
+        run: docker compose config
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Snyk scan (if available)
+        uses: snyk/actions/setup@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      
+      - name: Run ShiftLeft Scan
+        uses: ShiftLeftSecurity/scan-action@master
+        with:
+          type: 'nodejs,python,go'
+          output: 'reports'
+        continue-on-error: true
+
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [api, controller, web, ai, compose]
+    if: always()
+    steps:
+      - name: Check CI Status
+        run: |
+          if [ "${{ needs.api.result }}" == "failure" ] || \
+             [ "${{ needs.controller.result }}" == "failure" ] || \
+             [ "${{ needs.web.result }}" == "failure" ] || \
+             [ "${{ needs.ai.result }}" == "failure" ] || \
+             [ "${{ needs.compose.result }}" == "failure" ]; then
+            echo "❌ CI Quality Gate Failed"
+            exit 1
+          fi
+          echo "✅ CI Quality Gate Passed"

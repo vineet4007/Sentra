@@ -4,6 +4,8 @@ import { closeDatabasePool, createDatabasePool } from './db.js'
 import { createRolloutEventSubscriber, listRolloutLiveStates } from './events.js'
 import { asyncHandler, sendErrorResponse } from './http.js'
 import { createCorsMiddleware, createRateLimitMiddleware } from './middleware.js'
+import { createSecureHeadersMiddleware } from './secure-headers.js'
+import { openApiSpec } from './openapi.js'
 import aiRouter from './routes/ai.js'
 import deploymentRouter from './routes/deployments.js'
 import environmentRouter from './routes/environments.js'
@@ -14,6 +16,7 @@ import policyRouter from './routes/policies.js'
 import projectRouter from './routes/projects.js'
 import rolloutRouter from './routes/rollouts.js'
 import satelliteRouter from './routes/satellites.js'
+import { globalIncidentDetector } from './incidents.js'
 import {
   createActionAuthorityMiddleware,
   createApiSecurityMiddleware,
@@ -33,6 +36,7 @@ if (process.env.SENTRA_TRUST_PROXY?.trim().toLowerCase() === 'true') {
 }
 
 app.disable('x-powered-by')
+app.use(createSecureHeadersMiddleware())
 app.use(createCorsMiddleware())
 app.use('/health', healthRouter)
 app.use(createRateLimitMiddleware())
@@ -48,7 +52,88 @@ app.use('/deployments', deploymentRouter)
 app.use('/rollouts', rolloutRouter)
 app.use('/satellites', satelliteRouter)
 
-app.get('/events', asyncHandler(async (req, res) => {
+// Incidents endpoint
+app.get('/incidents', asyncHandler(async (req, res) => {
+  const deploymentId = req.query.deploymentId ? Number(req.query.deploymentId) : undefined
+  const tenantKey = getRequestTenantKey(req, security)
+  
+  // Verify tenant access if tenant scoping is enabled
+  if (tenantKey && deploymentId) {
+    const hasAccess = await deploymentBelongsToTenant(deploymentId, tenantKey)
+    if (!hasAccess) {
+      return sendErrorResponse(res, 403, 'Forbidden', 'No access to this deployment')
+    }
+  }
+  
+  const incidents = deploymentId 
+    ? globalIncidentDetector.getIncidents(deploymentId)
+    : globalIncidentDetector.getIncidents()
+  
+  res.json({ items: incidents })
+}))
+
+app.get('/incidents/:id', asyncHandler(async (req, res) => {
+  const id = req.params.id
+  const incidents = globalIncidentDetector.getIncidents()
+  const incident = incidents.find((i) => i.id === id)
+  
+  if (!incident) {
+    return sendErrorResponse(res, 404, 'Not Found', 'Incident not found')
+  }
+  
+  const tenantKey = getRequestTenantKey(req, security)
+  if (tenantKey && !(await deploymentBelongsToTenant(incident.deploymentId, tenantKey))) {
+    return sendErrorResponse(res, 403, 'Forbidden', 'No access to this incident')
+  }
+  
+  res.json(incident)
+}))
+
+app.post('/incidents/:id/acknowledge', createActionAuthorityMiddleware(security), asyncHandler(async (req, res) => {
+  const id = req.params.id
+  const { assignee } = req.body as { assignee?: string }
+  
+  try {
+    globalIncidentDetector.acknowledgeIncident(id, assignee || 'unknown')
+    const incidents = globalIncidentDetector.getIncidents()
+    const incident = incidents.find((i) => i.id === id)
+    res.json(incident)
+  } catch (error) {
+    sendErrorResponse(res, 400, 'Bad Request', String(error))
+  }
+}))
+
+app.post('/incidents/:id/resolve', createActionAuthorityMiddleware(security), asyncHandler(async (req, res) => {
+  const id = req.params.id
+  const { resolution } = req.body as { resolution?: string }
+  
+  try {
+    globalIncidentDetector.resolveIncident(id, resolution || 'resolved')
+    const incidents = globalIncidentDetector.getIncidents()
+    const incident = incidents.find((i) => i.id === id)
+    res.json(incident)
+  } catch (error) {
+    sendErrorResponse(res, 400, 'Bad Request', String(error))
+  }
+}))
+
+app.post('/incidents/:id/notes', createActionAuthorityMiddleware(security), asyncHandler(async (req, res) => {
+  const id = req.params.id
+  const { note, author } = req.body as { note?: string; author?: string }
+  
+  if (!note) {
+    return sendErrorResponse(res, 400, 'Bad Request', 'Note content required')
+  }
+  
+  try {
+    globalIncidentDetector.addNote(id, note, author || 'unknown')
+    const incidents = globalIncidentDetector.getIncidents()
+    const incident = incidents.find((i) => i.id === id)
+    res.json(incident)
+  } catch (error) {
+    sendErrorResponse(res, 400, 'Bad Request', String(error))
+  }
+}))
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
@@ -94,6 +179,39 @@ app.get('/events', asyncHandler(async (req, res) => {
     res.write(`event: ping\ndata: {"timestamp":"${new Date().toISOString()}"}\n\n`)
   }, 15000)
 }))
+
+// OpenAPI and documentation endpoints
+app.get('/openapi.json', (_req, res) => {
+  res.json(openApiSpec)
+})
+
+// Swagger UI (simple HTML endpoint)
+app.get('/docs', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.send(`
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Sentra API Documentation</title>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: "Montserrat", sans-serif;
+        background: #fafafa;
+      }
+    </style>
+  </head>
+  <body>
+    <redoc spec-url='/openapi.json'></redoc>
+    <script src="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"></script>
+  </body>
+</html>
+  `)
+})
 
 const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   sendErrorResponse(res, error)

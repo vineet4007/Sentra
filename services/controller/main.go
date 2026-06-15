@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,9 +27,12 @@ func health(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	logger := NewLogger()
+
 	config, err := loadControllerConfig()
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("failed to load configuration", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -37,12 +40,14 @@ func main() {
 	telemetry := newTelemetryService(config)
 	store, err := newControllerStore(config)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("failed to create controller store", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 	defer store.db.Close()
 	stateStore, err := newRolloutStateStore(config)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("failed to create rollout state store", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 	defer stateStore.client.Close()
 
@@ -92,15 +97,16 @@ func main() {
 		ready.Set(0)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		log.Printf("controller shutting down")
+		logger.Info("controller shutting down")
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("controller graceful shutdown failed: %v", err)
+			logger.Error("graceful shutdown failed", slog.String("error", err.Error()))
 			_ = server.Close()
 		}
 	}()
 
-	log.Printf("controller up on %s", config.HTTPPort)
+	logger.Info("controller starting", slog.String("port", config.HTTPPort))
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		logger.Error("server error", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 }

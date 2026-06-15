@@ -56,8 +56,6 @@ INCLUDE_PATHS=(
   ".editorconfig"
   ".env.example"
   "README.md"
-  "IMPLEMENTATION_PLAN.md"
-  "TELEMETRY_REQUIREMENTS.md"
   "Makefile"
   "docker-compose.yml"
   "db"
@@ -86,8 +84,8 @@ EOF
 tar -czf "${ARCHIVE_PATH}" -C "${DIST_DIR}" "${BUNDLE_NAME}"
 
 for required_path in \
+  "README.md" \
   "docker-compose.yml" \
-  "deploy/selfhosted/README.md" \
   "deploy/selfhosted/.env.production.example" \
   "deploy/selfhosted/docker-compose.selfhosted.yml" \
   "services/api" \
