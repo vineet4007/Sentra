@@ -22,6 +22,9 @@ services:
   promtail:
     <<: *sentra-runtime-defaults
 
+  ai:
+    <<: *sentra-runtime-defaults
+
   tempo:
     <<: *sentra-runtime-defaults
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 )
@@ -91,12 +92,12 @@ func (l *Logger) WithTenant(tenantKey string) *Logger {
 
 // LogError logs an error with context
 func (l *Logger) LogError(msg string, err error, attrs ...slog.Attr) {
-	l.Error(msg, append([]slog.Attr{slog.String("error", err.Error())}, attrs...)...)
+	l.LogAttrs(context.Background(), slog.LevelError, msg, append([]slog.Attr{slog.String("error", err.Error())}, attrs...)...)
 }
 
 // LogMetric logs a metric value
 func (l *Logger) LogMetric(name string, value float64, unit string, attrs ...slog.Attr) {
-	l.Info("metric",
+	l.LogAttrs(context.Background(), slog.LevelInfo, "metric",
 		append([]slog.Attr{
 			slog.String("metricName", name),
 			slog.Float64("value", value),
@@ -107,7 +108,7 @@ func (l *Logger) LogMetric(name string, value float64, unit string, attrs ...slo
 
 // LogDecision logs a rollout decision
 func (l *Logger) LogDecision(deploymentId int, decision string, reason string, attrs ...slog.Attr) {
-	l.Info("rollout_decision",
+	l.LogAttrs(context.Background(), slog.LevelInfo, "rollout_decision",
 		append([]slog.Attr{
 			slog.Int("deploymentId", deploymentId),
 			slog.String("decision", decision),

@@ -7,7 +7,7 @@ services:
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
-      - "3306:3306"
+      - "${MYSQL_HOST_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./db/migrations:/docker-entrypoint-initdb.d:ro
@@ -20,7 +20,7 @@ services:
   redis:
     image: redis:7.4-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -36,7 +36,7 @@ services:
     env_file:
       - ./.env
     ports:
-      - "8000:8000"
+      - "${SENTRA_AI_HOST_PORT:-8000}:8000"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   prometheus:
@@ -45,7 +45,7 @@ services:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     ports:
-      - "9090:9090"
+      - "${SENTRA_PROMETHEUS_HOST_PORT:-9090}:9090"
 
   loki:
     image: grafana/loki:3.1.1
@@ -53,7 +53,7 @@ services:
       - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     ports:
-      - "3100:3100"
+      - "${SENTRA_LOKI_HOST_PORT:-3100}:3100"
 
   promtail:
     image: grafana/promtail:3.1.1
@@ -69,7 +69,35 @@ services:
       - tempo_data:/var/tempo
     command: ["--config.file=/etc/tempo.yaml"]
     ports:
-      - "3200:3200"   # HTTP
+      - "${SENTRA_TEMPO_HOST_PORT:-3200}:3200"   # HTTP
+
+  demo-workload:
+    profiles: ["demo"]
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./examples/demo-workload:/app:ro
+    environment:
+      PORT: 9102
+      LOKI_URL: http://loki:3100
+      LOKI_TENANT_ID: ${LOKI_TENANT_ID:-local}
+    ports:
+      - "${SENTRA_DEMO_WORKLOAD_HOST_PORT:-18091}:9102"
+    depends_on:
+      loki:
+        condition: service_started
+    command: ["python", "demo_workload.py"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9102/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   api:
     build:
@@ -82,7 +110,7 @@ services:
       SENTRA_AI_URL: ${SENTRA_AI_URL:-http://ai:8000}
       SENTRA_AI_TIMEOUT_SEC: ${SENTRA_AI_TIMEOUT_SEC:-3}
     ports:
-      - "8080:8080"
+      - "${SENTRA_API_HOST_PORT:-8080}:8080"
     depends_on:
       mysql:
         condition: service_healthy
@@ -101,7 +129,7 @@ services:
     environment:
       SENTRA_API_URL: http://api:8080
     ports:
-      - "3000:3000"
+      - "${SENTRA_WEB_HOST_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_started
@@ -131,7 +159,7 @@ services:
       SATELLITE_TASK_POLL_INTERVAL_SEC: ${SATELLITE_TASK_POLL_INTERVAL_SEC:-5}
       SATELLITE_TASK_LEASE_SEC: ${SATELLITE_TASK_LEASE_SEC:-30}
     ports:
-      - "8090:8090"
+      - "${SENTRA_CONTROLLER_HOST_PORT:-8090}:8090"
     depends_on:
       mysql:
         condition: service_healthy

@@ -1,9 +1,0 @@
-{
-  "/_global-error/page": "/_global-error",
-  "/_not-found/page": "/_not-found",
-  "/projects/[id]/page": "/projects/[id]",
-  "/satellites/[id]/page": "/satellites/[id]",
-  "/page": "/",
-  "/rollouts/[id]/page": "/rollouts/[id]",
-  "/api/[...path]/route": "/api/[...path]"
-}

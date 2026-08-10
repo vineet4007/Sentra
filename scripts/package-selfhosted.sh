@@ -44,6 +44,12 @@ copy_into_bundle() {
       --exclude='*/coverage' \
       --exclude='bin' \
       --exclude='*/bin' \
+      --exclude='__pycache__' \
+      --exclude='*/__pycache__' \
+      --exclude='*.pyc' \
+      --exclude='*.pyo' \
+      --exclude='.DS_Store' \
+      --exclude='*/.DS_Store' \
       --exclude='*.log' \
       -cf - "${source_path}" | tar -xf - -C "${STAGE_DIR}"
     return
@@ -60,8 +66,10 @@ INCLUDE_PATHS=(
   "docker-compose.yml"
   "db"
   "deploy"
+  "examples"
   "infra"
   "scripts"
+  "services/ai"
   "services/api"
   "services/controller"
   "services/web"
@@ -71,12 +79,15 @@ for path in "${INCLUDE_PATHS[@]}"; do
   copy_into_bundle "${path}"
 done
 
+cp "${STAGE_DIR}/deploy/selfhosted/.env.production.example" "${STAGE_DIR}/.env"
+
 cat > "${STAGE_DIR}/BUNDLE_MANIFEST.json" <<EOF
 {
   "bundleName": "${BUNDLE_NAME}",
   "createdAt": "${TIMESTAMP}",
   "gitCommit": "${GIT_COMMIT}",
   "packagingMode": "selfhosted-compose",
+  "envFile": ".env",
   "entrypoint": "docker compose -f docker-compose.yml -f deploy/selfhosted/docker-compose.selfhosted.yml up -d --build"
 }
 EOF
@@ -84,10 +95,12 @@ EOF
 tar -czf "${ARCHIVE_PATH}" -C "${DIST_DIR}" "${BUNDLE_NAME}"
 
 for required_path in \
+  ".env" \
   "README.md" \
   "docker-compose.yml" \
   "deploy/selfhosted/.env.production.example" \
   "deploy/selfhosted/docker-compose.selfhosted.yml" \
+  "services/ai" \
   "services/api" \
   "services/controller" \
   "services/web"; do
@@ -96,5 +109,14 @@ for required_path in \
     exit 1
   fi
 done
+
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  (
+    cd "${STAGE_DIR}"
+    docker compose -f docker-compose.yml -f deploy/selfhosted/docker-compose.selfhosted.yml config >/dev/null
+  )
+else
+  echo "Skipping bundle Compose config smoke: docker compose is not available"
+fi
 
 echo "Created ${ARCHIVE_PATH}"

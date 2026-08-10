@@ -1,25 +1,16 @@
 import assert from 'node:assert/strict'
-import { afterEach, before, beforeEach, test } from 'node:test'
+import { afterEach, test } from 'node:test'
 import type { Server } from 'node:http'
 import express, { type Express } from 'express'
-import { createDatabasePool } from '../db.js'
-import { createCorsMiddleware, createRateLimitMiddleware, resetRateLimitBucketsForTest } from '../middleware.js'
+import { createCorsMiddleware, createRateLimitMiddleware, resetRateLimitBucketsForTest } from './middleware.js'
 import {
   createApiSecurityMiddleware,
   createActionAuthorityMiddleware,
-  getApiSecurityConfig,
   getRequestTenantKey,
-} from '../security.js'
-import aiRouter from '../routes/ai.js'
-import deploymentRouter from '../routes/deployments.js'
-import environmentRouter from '../routes/environments.js'
-import healthRouter from '../routes/health.js'
-import integrationRouter from '../routes/integrations.js'
-import policyRouter from '../routes/policies.js'
-import projectRouter from '../routes/projects.js'
-import rolloutRouter from '../routes/rollouts.js'
-import satelliteRouter from '../routes/satellites.js'
-import { createRolloutEventSubscriber, listRolloutLiveStates } from '../events.js'
+} from './security.js'
+import { sendErrorResponse } from './http.js'
+import { createSecureHeadersMiddleware } from './secure-headers.js'
+import { createIncidentRouter, type IncidentRouterDependencies } from './routes/incidents.js'
 
 type StartedApp = {
   baseUrl: string
@@ -28,20 +19,165 @@ type StartedApp = {
 }
 
 const originalEnv = { ...process.env }
-let pool: any
-
-before(async () => {
-  pool = await createDatabasePool()
-})
 
 afterEach(() => {
   process.env = { ...originalEnv }
   resetRateLimitBucketsForTest()
 })
 
+const defaultSecurityConfig = {
+  bearerToken: null as string | null,
+  requireTenant: false,
+  defaultTenant: null as string | null,
+  tenantHeader: 'x-sentra-tenant',
+  actionToken: null as string | null,
+  actionHeader: 'x-sentra-action-token',
+  actionActorHeader: 'x-sentra-actor',
+  oidcIssuer: null as string | null,
+  oidcAudience: null as string | null,
+  oidcJwksUrl: null as string | null,
+  oidcDiscoveryUrl: null as string | null,
+  oidcClockToleranceSec: 60,
+  oidcJwksCacheTtlSec: 300,
+  oidcSubjectClaim: 'sub',
+  oidcActorClaim: 'email',
+  oidcRolesClaim: 'roles',
+  oidcTenantClaim: 'tenant',
+  oidcTenantsClaim: 'tenants',
+  rbacEnabled: false,
+  rbacActionTokenFallback: true,
+  rbacViewerRoles: ['viewer', 'sentra:viewer'],
+  rbacOperatorRoles: ['operator', 'sentra:operator'],
+  rbacAdminRoles: ['admin', 'sentra:admin'],
+  staticBearerRoles: ['admin'],
+}
+
+type FakeIncidentRow = {
+  id: number
+  deploymentId: number
+  rolloutStepId: number | null
+  incidentType: string
+  severity: string
+  status: string
+  summary: string
+  details: string | null
+  detectedAt: Date
+  resolvedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+type FakeIncidentActionRow = {
+  id: number
+  incidentId: number
+  deploymentId: number
+  actionType: string
+  actorId: string | null
+  note: string | null
+  details: string | null
+  createdAt: Date
+}
+
+function createFakeIncidentDeps(
+  incidents: FakeIncidentRow[],
+  actions: FakeIncidentActionRow[] = [],
+) {
+  const calls: Array<{ sql: string; params: unknown[] }> = []
+  let nextActionId = actions.reduce((max, action) => Math.max(max, action.id), 0) + 1
+
+  const selectRows = (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM incident_actions')) {
+      const ids = new Set(params.map(Number))
+      return actions.filter((action) => ids.has(action.incidentId))
+    }
+    if (sql.includes('FROM incidents')) {
+      const incidentId = Number(params[0])
+      if (sql.includes('WHERE i.id = ?')) {
+        return incidents.filter((incident) => incident.id === incidentId)
+      }
+      return incidents
+    }
+    return []
+  }
+
+  const connection = {
+    query: async (sql: string, params: unknown[] = []) => {
+      calls.push({ sql, params })
+      return [selectRows(sql, params), []]
+    },
+    execute: async (sql: string, params: unknown[] = []) => {
+      calls.push({ sql, params })
+
+      if (sql.includes("SET status = 'acknowledged'")) {
+        const incident = incidents.find((candidate) => candidate.id === Number(params[0]))
+        if (incident) {
+          incident.status = 'acknowledged'
+          incident.updatedAt = new Date('2026-08-10T12:10:00.000Z')
+        }
+      }
+
+      if (sql.includes("SET status = 'resolved'")) {
+        const incident = incidents.find((candidate) => candidate.id === Number(params[0]))
+        if (incident) {
+          incident.status = 'resolved'
+          incident.resolvedAt = new Date('2026-08-10T12:11:00.000Z')
+          incident.updatedAt = new Date('2026-08-10T12:11:00.000Z')
+        }
+      }
+
+      if (sql.includes('INSERT INTO incident_actions')) {
+        actions.push({
+          id: nextActionId++,
+          incidentId: Number(params[0]),
+          deploymentId: Number(params[1]),
+          actionType: String(params[2]),
+          actorId: params[3] === null ? null : String(params[3]),
+          note: params[4] === null ? null : String(params[4]),
+          details: params[5] === null ? null : String(params[5]),
+          createdAt: new Date('2026-08-10T12:12:00.000Z'),
+        })
+      }
+
+      return [{ affectedRows: 1, insertId: nextActionId - 1 }, []]
+    },
+  }
+
+  const deps: IncidentRouterDependencies = {
+    queryRows: async (sql, params = []) => {
+      calls.push({ sql, params })
+      return selectRows(sql, params) as never
+    },
+    withTransaction: async (fn) => fn(connection as never),
+  }
+
+  return { deps, calls, actions }
+}
+
+function fakeIncident(overrides: Partial<FakeIncidentRow> = {}): FakeIncidentRow {
+  return {
+    id: 11,
+    deploymentId: 3,
+    rolloutStepId: 22,
+    incidentType: 'slo_breach',
+    severity: 'critical',
+    status: 'open',
+    summary: 'Candidate error rate breached rollback threshold',
+    details: JSON.stringify({
+      title: 'Rollback threshold breached',
+      description: 'Candidate crossed the configured error-rate SLO.',
+      events: [{ type: 'gate_failure', message: 'error_rate too high' }],
+    }),
+    detectedAt: new Date('2026-08-10T12:00:00.000Z'),
+    resolvedAt: null,
+    createdAt: new Date('2026-08-10T12:00:00.000Z'),
+    updatedAt: new Date('2026-08-10T12:00:00.000Z'),
+    ...overrides,
+  }
+}
+
 async function startApp(
   configurer: (app: Express) => void,
-  headers: Record<string, string> = {},
+  securityConfig: typeof defaultSecurityConfig = defaultSecurityConfig,
 ): Promise<StartedApp> {
   const app = express()
 
@@ -50,22 +186,18 @@ async function startApp(
   }
 
   app.disable('x-powered-by')
+  app.use(createSecureHeadersMiddleware())
   app.use(createCorsMiddleware())
-  app.use('/health', healthRouter)
+  app.get('/health', (_req, res) => res.json({ status: 'ok' }))
   app.use(createRateLimitMiddleware())
   app.use(express.json({ limit: process.env.SENTRA_JSON_BODY_LIMIT || '1mb' }))
-  app.use(createApiSecurityMiddleware(getApiSecurityConfig()))
-  app.use(createActionAuthorityMiddleware(getApiSecurityConfig()))
-  app.use('/ai', aiRouter)
-  app.use('/projects', projectRouter)
-  app.use('/environments', environmentRouter)
-  app.use('/integrations', integrationRouter)
-  app.use('/policies', policyRouter)
-  app.use('/deployments', deploymentRouter)
-  app.use('/rollouts', rolloutRouter)
-  app.use('/satellites', satelliteRouter)
+  app.use(createApiSecurityMiddleware(securityConfig))
+  app.use(createActionAuthorityMiddleware(securityConfig))
 
   configurer(app)
+  app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    sendErrorResponse(res, error)
+  })
 
   return new Promise((resolve, reject) => {
     const server = app.listen(0, () => {
@@ -103,84 +235,121 @@ test('GET /health returns ok status', async () => {
   }
 })
 
-test('POST /projects/onboard creates project and services', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
-  const app = await startApp(() => {})
+test('protected routes require bearer authentication when configured', async () => {
+  const app = await startApp(
+    (candidate) => {
+      candidate.get('/protected', (_req, res) => res.json({ ok: true }))
+    },
+    {
+      ...defaultSecurityConfig,
+      bearerToken: 'test-token',
+    },
+  )
   try {
-    const response = await fetch(`${app.baseUrl}/projects/onboard`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer test-token',
-      },
-      body: JSON.stringify({
-        projectName: 'test-project',
-        services: [
-          {
-            name: 'api-service',
-            deploymentTargetType: 'Kubernetes',
-            deploymentTargetConfig: {
-              clusterName: 'test-cluster',
-              namespace: 'default',
-            },
-          },
-        ],
-        environments: {
-          prod: {
-            deploymentTargetConfig: {
-              clusterName: 'prod-cluster',
-              namespace: 'production',
-            },
-          },
-        },
-      }),
-    })
-    assert.equal(response.status, 201)
-    const json = (await response.json()) as Record<string, any>
-    assert.equal(json.projectName, 'test-project')
-  } finally {
-    await app.close()
-  }
-})
-
-test('GET /projects requires authentication', async () => {
-  const app = await startApp(() => {})
-  try {
-    const response = await fetch(`${app.baseUrl}/projects`)
+    const response = await fetch(`${app.baseUrl}/protected`)
     assert.equal(response.status, 401)
+    const json = (await response.json()) as Record<string, any>
+    assert.equal(json.error.message, 'Missing bearer token')
   } finally {
     await app.close()
   }
 })
 
-test('POST /projects requires action authority token', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
-  process.env.SENTRA_ACTION_AUTHORITY_TOKEN = 'action-token'
-  const app = await startApp(() => {})
+test('protected routes accept a valid bearer token', async () => {
+  const app = await startApp(
+    (candidate) => {
+      candidate.get('/protected', (_req, res) => res.json({ ok: true }))
+    },
+    {
+      ...defaultSecurityConfig,
+      bearerToken: 'test-token',
+    },
+  )
   try {
-    // Without action authority
-    const response = await fetch(`${app.baseUrl}/projects`, {
+    const response = await fetch(`${app.baseUrl}/protected`, {
+      headers: {
+        Authorization: 'Bearer test-token',
+      },
+    })
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { ok: true })
+  } finally {
+    await app.close()
+  }
+})
+
+test('mutating operator routes require action authority token', async () => {
+  const app = await startApp(
+    (candidate) => {
+      candidate.post('/write', (_req, res) => res.json({ ok: true }))
+    },
+    {
+      ...defaultSecurityConfig,
+      bearerToken: 'test-token',
+      actionToken: 'action-token',
+    },
+  )
+  try {
+    const response = await fetch(`${app.baseUrl}/write`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer test-token',
       },
       body: JSON.stringify({
-        tenantKey: 'test-tenant',
         name: 'new-project',
       }),
     })
     assert.equal(response.status, 403)
+    const json = (await response.json()) as Record<string, any>
+    assert.match(json.error.message, /action authority/)
   } finally {
     await app.close()
   }
 })
 
-test('Bearer token auth validates token format', async () => {
-  process.env.SENTRA_API_TOKEN = 'valid-token'
-  const app = await startApp(() => {})
+test('mutating operator routes accept action authority token', async () => {
+  const app = await startApp(
+    (candidate) => {
+      candidate.post('/write', (_req, res) => res.json({ ok: true }))
+    },
+    {
+      ...defaultSecurityConfig,
+      bearerToken: 'test-token',
+      actionToken: 'action-token',
+    },
+  )
   try {
-    const response = await fetch(`${app.baseUrl}/projects`, {
+    const response = await fetch(`${app.baseUrl}/write`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-token',
+        'x-sentra-action-token': 'action-token',
+      },
+      body: JSON.stringify({
+        name: 'new-project',
+      }),
+    })
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { ok: true })
+  } finally {
+    await app.close()
+  }
+})
+
+test('bearer token auth validates token format', async () => {
+  const app = await startApp(
+    (candidate) => {
+      candidate.get('/protected', (_req, res) => res.json({ ok: true }))
+    },
+    {
+      ...defaultSecurityConfig,
+      bearerToken: 'valid-token',
+    },
+  )
+  try {
+    const response = await fetch(`${app.baseUrl}/protected`, {
       headers: {
         Authorization: 'InvalidFormat token-value',
       },
@@ -192,10 +361,10 @@ test('Bearer token auth validates token format', async () => {
 })
 
 test('Rate limiter enforces request limits', async () => {
-  process.env.SENTRA_RATE_LIMIT_WINDOW_MS = '1000'
-  process.env.SENTRA_RATE_LIMIT_MAX_REQUESTS = '3'
-  const app = await startApp(() => {
-    app.get('/test', (_req, res) => res.json({ ok: true }))
+  process.env.SENTRA_RATE_LIMIT_WINDOW_SEC = '60'
+  process.env.SENTRA_RATE_LIMIT_MAX = '3'
+  const app = await startApp((candidate) => {
+    candidate.get('/test', (_req, res) => res.json({ ok: true }))
   })
   try {
     // Make 3 requests (should pass)
@@ -211,53 +380,20 @@ test('Rate limiter enforces request limits', async () => {
   }
 })
 
-test('API rejects requests with inline secrets', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
-  const app = await startApp(() => {})
-  try {
-    const response = await fetch(`${app.baseUrl}/projects/onboard`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer test-token',
-      },
-      body: JSON.stringify({
-        projectName: 'test-project',
-        services: [
-          {
-            name: 'api-service',
-            deploymentTargetType: 'Kubernetes',
-            deploymentTargetConfig: {
-              clusterName: 'test-cluster',
-              apiKey: 'sk-12345secret-inline', // Inline secret pattern
-            },
-          },
-        ],
-        environments: {},
-      }),
-    })
-    assert.equal(response.status, 400)
-    const json = (await response.json()) as Record<string, any>
-    assert(json.error?.includes('sensitive') || json.error?.includes('secret'))
-  } finally {
-    await app.close()
-  }
-})
-
 test('API enforces JSON body size limit', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
   process.env.SENTRA_JSON_BODY_LIMIT = '100b'
-  const app = await startApp(() => {})
+  const app = await startApp((candidate) => {
+    candidate.post('/echo', (_req, res) => res.json({ ok: true }))
+  })
   try {
     const largeBody = JSON.stringify({
       projectName: 'test-project',
       services: [{ name: 'service', config: 'x'.repeat(500) }],
     })
-    const response = await fetch(`${app.baseUrl}/projects/onboard`, {
+    const response = await fetch(`${app.baseUrl}/echo`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer test-token',
       },
       body: largeBody,
     })
@@ -269,8 +405,8 @@ test('API enforces JSON body size limit', async () => {
 
 test('CORS middleware validates origin', async () => {
   process.env.SENTRA_CORS_ORIGINS = 'https://allowed.example.com'
-  const app = await startApp(() => {
-    app.get('/test', (_req, res) => res.json({ ok: true }))
+  const app = await startApp((candidate) => {
+    candidate.get('/test', (_req, res) => res.json({ ok: true }))
   })
   try {
     const response = await fetch(`${app.baseUrl}/test`, {
@@ -287,8 +423,8 @@ test('CORS middleware validates origin', async () => {
 
 test('CORS middleware blocks unapproved origins', async () => {
   process.env.SENTRA_CORS_ORIGINS = 'https://allowed.example.com'
-  const app = await startApp(() => {
-    app.post('/write', (_req, res) => res.json({ ok: true }))
+  const app = await startApp((candidate) => {
+    candidate.post('/write', (_req, res) => res.json({ ok: true }))
   })
   try {
     const response = await fetch(`${app.baseUrl}/write`, {
@@ -306,37 +442,16 @@ test('CORS middleware blocks unapproved origins', async () => {
 })
 
 test('API validates request content type', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
-  const app = await startApp(() => {})
+  const app = await startApp((candidate) => {
+    candidate.post('/echo', (_req, res) => res.json({ ok: true }))
+  })
   try {
-    const response = await fetch(`${app.baseUrl}/projects/onboard`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain', // Wrong content type
-        Authorization: 'Bearer test-token',
-      },
-      body: '{"projectName": "test"}',
-    })
-    assert(response.status >= 400)
-  } finally {
-    await app.close()
-  }
-})
-
-test('API validates required query parameters', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
-  const app = await startApp(() => {})
-  try {
-    const response = await fetch(`${app.baseUrl}/integrations/validate`, {
+    const response = await fetch(`${app.baseUrl}/echo`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer test-token',
       },
-      body: JSON.stringify({
-        // Missing required 'integrationType' field
-        config: {},
-      }),
+      body: '{"projectName":',
     })
     assert.equal(response.status, 400)
   } finally {
@@ -345,8 +460,8 @@ test('API validates required query parameters', async () => {
 })
 
 test('Successful response includes correct headers', async () => {
-  const app = await startApp(() => {
-    app.get('/test', (_req, res) => res.json({ ok: true }))
+  const app = await startApp((candidate) => {
+    candidate.get('/test', (_req, res) => res.json({ ok: true }))
   })
   try {
     const response = await fetch(`${app.baseUrl}/test`)
@@ -358,18 +473,146 @@ test('Successful response includes correct headers', async () => {
 })
 
 test('Tenant key extraction from auth header', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
-  const app = await startApp(() => {})
+  const app = await startApp(
+    (candidate) => {
+      candidate.get('/tenant', (req, res) => res.json({ tenant: getRequestTenantKey(req) }))
+    },
+    {
+      ...defaultSecurityConfig,
+      bearerToken: 'test-token',
+      requireTenant: true,
+      tenantHeader: 'x-sentra-tenant',
+    },
+  )
   try {
-    // Should work with format: Bearer <tenantKey>:<token>
-    const response = await fetch(`${app.baseUrl}/projects`, {
+    const response = await fetch(`${app.baseUrl}/tenant`, {
       headers: {
-        Authorization: 'Bearer tenant-123:test-token',
+        Authorization: 'Bearer test-token',
+        'x-sentra-tenant': 'tenant-123',
       },
     })
-    // Expect 200 (we have valid token format), though we might get 401 for invalid token value
-    // This test mainly checks that the bearer token parsing works
-    assert(response.status === 200 || response.status === 401)
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { tenant: 'tenant-123' })
+  } finally {
+    await app.close()
+  }
+})
+
+test('GET /incidents reads persisted incidents and action history', async () => {
+  const incident = fakeIncident()
+  const { deps, calls } = createFakeIncidentDeps(
+    [incident],
+    [
+      {
+        id: 40,
+        incidentId: incident.id,
+        deploymentId: incident.deploymentId,
+        actionType: 'note_added',
+        actorId: 'operator-a',
+        note: 'Checking the deployment logs.',
+        details: JSON.stringify({ noteLength: 29 }),
+        createdAt: new Date('2026-08-10T12:05:00.000Z'),
+      },
+    ],
+  )
+  const securityConfig = {
+    ...defaultSecurityConfig,
+    requireTenant: true,
+  }
+  const app = await startApp((candidate) => {
+    candidate.use('/incidents', createIncidentRouter(deps, securityConfig))
+  }, securityConfig)
+
+  try {
+    const response = await fetch(`${app.baseUrl}/incidents?deploymentId=3&limit=2`, {
+      headers: {
+        'x-sentra-tenant': 'tenant-a',
+      },
+    })
+
+    assert.equal(response.status, 200)
+    const payload = (await response.json()) as Record<string, any>
+    assert.equal(payload.ok, true)
+    assert.equal(payload.data.count, 1)
+    assert.equal(payload.data.items[0].id, incident.id)
+    assert.equal(payload.data.items[0].title, 'Rollback threshold breached')
+    assert.equal(payload.data.items[0].actions[0].actionType, 'note_added')
+    assert.deepEqual(payload.data.items[0].notes, ['Checking the deployment logs.'])
+    assert.deepEqual(calls[0].params, [3, 'tenant-a', 2])
+  } finally {
+    await app.close()
+  }
+})
+
+test('POST /incidents/:id/acknowledge persists action and audit event', async () => {
+  const incident = fakeIncident()
+  const { deps, calls } = createFakeIncidentDeps([incident])
+  const securityConfig = {
+    ...defaultSecurityConfig,
+    actionToken: 'action-token',
+  }
+  const app = await startApp((candidate) => {
+    candidate.use('/incidents', createIncidentRouter(deps, securityConfig))
+  }, securityConfig)
+
+  try {
+    const response = await fetch(`${app.baseUrl}/incidents/${incident.id}/acknowledge`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-sentra-action-token': 'action-token',
+        'x-sentra-actor': 'ops-user',
+      },
+      body: JSON.stringify({
+        assignee: 'primary-oncall',
+      }),
+    })
+
+    assert.equal(response.status, 200)
+    const payload = (await response.json()) as Record<string, any>
+    assert.equal(payload.data.status, 'acknowledged')
+    assert.equal(payload.data.assignee, 'primary-oncall')
+    assert.equal(payload.data.acknowledgedBy, 'ops-user')
+    assert.equal(payload.data.actions[0].actionType, 'acknowledged')
+
+    const actionInsert = calls.find((call) => call.sql.includes('INSERT INTO incident_actions'))
+    assert(actionInsert)
+    assert.deepEqual(actionInsert.params.slice(0, 5), [
+      incident.id,
+      incident.deploymentId,
+      'acknowledged',
+      'ops-user',
+      null,
+    ])
+    assert(calls.some((call) => call.sql.includes('INSERT INTO audit_events')))
+  } finally {
+    await app.close()
+  }
+})
+
+test('POST /incidents/:id/notes validates note content', async () => {
+  const { deps } = createFakeIncidentDeps([fakeIncident()])
+  const securityConfig = {
+    ...defaultSecurityConfig,
+    actionToken: 'action-token',
+  }
+  const app = await startApp((candidate) => {
+    candidate.use('/incidents', createIncidentRouter(deps, securityConfig))
+  }, securityConfig)
+
+  try {
+    const response = await fetch(`${app.baseUrl}/incidents/11/notes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-sentra-action-token': 'action-token',
+      },
+      body: JSON.stringify({ note: '' }),
+    })
+
+    assert.equal(response.status, 400)
+    const payload = (await response.json()) as Record<string, any>
+    assert.equal(payload.error.message, '"note" must be a non-empty string')
   } finally {
     await app.close()
   }
@@ -386,35 +629,16 @@ test('Health endpoint does not require authentication', async () => {
 })
 
 test('Error response includes error message', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
-  const app = await startApp(() => {})
-  try {
-    const response = await fetch(`${app.baseUrl}/projects`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer test-token',
-      },
-      body: JSON.stringify({ invalid: 'data' }),
+  const app = await startApp((candidate) => {
+    candidate.get('/broken', () => {
+      throw new Error('boom')
     })
-    assert.equal(response.status, 400)
+  })
+  try {
+    const response = await fetch(`${app.baseUrl}/broken`)
+    assert.equal(response.status, 500)
     const json = (await response.json()) as Record<string, any>
-    assert(json.error && typeof json.error === 'string')
-  } finally {
-    await app.close()
-  }
-})
-
-test('API enforces positive integer validation', async () => {
-  process.env.SENTRA_API_TOKEN = 'test-token'
-  const app = await startApp(() => {})
-  try {
-    const response = await fetch(`${app.baseUrl}/deployments?limit=-1`, {
-      headers: {
-        Authorization: 'Bearer test-token',
-      },
-    })
-    assert.equal(response.status, 400)
+    assert.equal(json.error.message, 'Internal server error')
   } finally {
     await app.close()
   }

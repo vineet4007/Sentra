@@ -9,3 +9,7 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["controller:8090"]
+  - job_name: "demo-workload"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["demo-workload:9102"]

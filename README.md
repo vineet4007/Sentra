@@ -1,5 +1,7 @@
 # Sentra Unified Documentation
 
+> Current status: beta/private-pilot foundation. Local build/test, regression, clean self-hosted bundle smoke, a real-telemetry demo canary/rollback proof, persisted manual incident operator actions, API OIDC/RBAC, and Redis-backed API rate limiting are green. Sentra is still not a self-serve production product until production identity-provider acceptance, multi-replica runtime/session controls, web/API coverage depth, production incident hardening, and operations acceptance gates are complete.
+
 This is the single Markdown documentation source for Sentra. It consolidates the project README, plans, runbooks, setup guides, status notes, nested READMEs, and report summaries that previously lived in separate `.md` files.
 
 ## Consolidated Sources
@@ -41,8 +43,8 @@ This is the single Markdown documentation source for Sentra. It consolidates the
 
 # Sentra — Real-Time, Multi-Cloud Deployment Intelligence
 
-**Version:** 0.3.0 (Production-Ready)  
-**Status:** ✅ 85-90% Complete with Phase 2 Production Hardening
+**Version:** 0.3.0 (Beta / Phase 0 Stabilized)
+**Status:** Beta/private-pilot foundations; not production-sellable until real rollout, security, packaging, and operations gates are complete.
 
 ## What is Sentra?
 
@@ -51,8 +53,45 @@ This is the single Markdown documentation source for Sentra. It consolidates the
 - ✅ **Real-time decisions** (2-5 second latency)
 - ✅ **Automatic rollback** on SLO violations
 - ✅ **Multi-cloud support** (Kubernetes, ECS, Lambda, Cloud Run, Container Apps)
-- ✅ **Production-ready** (security, testing, observability, documentation)
+- ⚠️ **Beta posture** (strong foundations, still awaiting production acceptance gates)
 - ✅ **Self-hosted** (your data, your infrastructure)
+
+## Current Beta Scope
+
+Sentra can be used for a founder-led private beta or design-partner pilot when the pilot scope is explicit and the safety gates below are respected.
+
+What is proven locally:
+
+- API, controller, AI advisor, and web build/test gates pass.
+- Full local regression suite passes across smoke, rollout integration, multi-service, federation, AI benchmark, AI dataset export, and AI profile training.
+- A clean extracted self-hosted bundle starts on alternate ports and passes smoke checks.
+- The optional demo workload proves one healthy canary promotion and one unhealthy rollback using controller-built Prometheus/Loki telemetry snapshots.
+- AI remains advisory-only and does not mutate traffic.
+
+What is not production-complete yet:
+
+- Self-serve enterprise install, production identity-provider acceptance, web session handling, and CSRF/same-origin hardening.
+- Manual incident operator actions persist as one source of truth; controller auto-resolve action rows and notifications still need hardening.
+- Redis-backed API rate limiting is available; production edge limits, per-endpoint throttles, and multi-replica acceptance tuning remain.
+- Route-by-route tenant isolation tests and broader API/database transaction coverage.
+- Web unit/component and browser end-to-end tests.
+- Production runtime proof against a real Kubernetes workload, not only local simulation plus demo telemetry.
+- Backup snapshot/PITR verification and signed release bundles.
+
+## Pilot Deployment Checklist
+
+Use this checklist before positioning a deployment as a paid pilot:
+
+1. Scope one primary service, one runtime target, and one telemetry stack for the first pilot.
+2. Decide the adapter mode up front: `simulation`, guarded dry run, or explicitly approved direct mutation.
+3. Run `make regression`, `bash scripts/run-demo-workload-flow.sh`, and `bash scripts/smoke-selfhosted-bundle.sh clean-smoke` from the exact source state that will be packaged.
+4. Replace every placeholder secret in `.env`; set API bearer, action, controller, tenant, CORS, and database secrets for the target environment.
+5. Verify Prometheus, Loki, and Tempo URLs are reachable from the Sentra containers, not only from the operator laptop.
+6. Confirm telemetry labels for `project`, `service`, `env`, and `version` exist on the workload signals.
+7. Keep AI in shadow/advisory mode and document that deterministic rollout gates are the only authority for promote, pause, and rollback.
+8. Keep controller and observability endpoints private; expose the web surface only behind the chosen TLS/auth boundary.
+9. Confirm rollback owner, stable fallback target, incident owner, and audit review owner before traffic is moved.
+10. Record the pilot exit criteria: one successful canary, one verified rollback drill, smoke checks after restart, and known production gaps accepted in writing.
 
 ## Quick Start
 
@@ -114,6 +153,8 @@ This single comprehensive document contains everything:
 
 ### Authentication & Authorization
 - `SENTRA_API_BEARER_TOKEN` — protects read access to API
+- `SENTRA_OIDC_ISSUER`, `SENTRA_OIDC_AUDIENCE`, `SENTRA_OIDC_JWKS_URL`, `SENTRA_OIDC_DISCOVERY_URL` — enable OIDC JWT validation for SSO-backed API access
+- `SENTRA_RBAC_ENABLED`, `SENTRA_RBAC_VIEWER_ROLES`, `SENTRA_RBAC_OPERATOR_ROLES`, `SENTRA_RBAC_ADMIN_ROLES` — map SSO roles into read, operator, and admin capabilities
 - `SENTRA_ACTION_TOKEN`, `SENTRA_ACTION_HEADER`, `SENTRA_ACTION_ACTOR_HEADER` — protect write actions separately from read access
 - `SENTRA_CONTROLLER_BEARER_TOKEN` — protects controller write and telemetry endpoints
 - `SENTRA_REQUIRE_TENANT`, `SENTRA_DEFAULT_TENANT`, `SENTRA_TENANT_HEADER` — enable tenant-scoped reads and writes
@@ -121,7 +162,7 @@ This single comprehensive document contains everything:
 
 ### Request & Response Security
 - `SENTRA_CORS_ORIGINS` — restrict cross-origin requests
-- `SENTRA_RATE_LIMIT_WINDOW_MS`, `SENTRA_RATE_LIMIT_MAX_REQUESTS` — prevent abuse
+- `SENTRA_RATE_LIMIT_BACKEND`, `SENTRA_RATE_LIMIT_WINDOW_SEC`, `SENTRA_RATE_LIMIT_MAX`, `SENTRA_RATE_LIMIT_REDIS_PREFIX`, `SENTRA_RATE_LIMIT_REDIS_FAIL_OPEN` — prevent abuse with memory or Redis-backed counters
 - `SENTRA_TRUST_PROXY` — respect X-Forwarded-For in reverse proxy setups
 - `SENTRA_JSON_BODY_LIMIT` — prevent large payload attacks
 - **Security Headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, XSS protection
@@ -524,6 +565,11 @@ AI advisory note:
   make verify
   ```
 - `make verify` now includes smoke, single-service integration, multi-service integration, and federation coverage.
+- Prove the local real-telemetry canary and rollback path:
+  ```bash
+  make demo-workload
+  ```
+- `make demo-workload` starts the optional demo profile, recreates Prometheus so the demo scrape target is active, then verifies one healthy promote path and one unhealthy rollback path using real Prometheus/Loki signals.
 - Build and lint the frontend directly:
   ```bash
   cd services/web && npm run lint && npm run build
@@ -536,20 +582,24 @@ AI advisory note:
   make package
   ```
 - This creates `dist/sentra-selfhosted-<timestamp>.tar.gz`.
-- The bundle includes the API, controller, web app, migrations, observability config, and a self-hosted runtime overlay.
-- For packaged installs, unpack the archive, copy `deploy/selfhosted/.env.production.example` to `.env`, then run:
+- The bundle includes the API, AI advisor, controller, web app, migrations, observability config, a seeded `.env`, and a self-hosted runtime overlay.
+- For packaged installs, unpack the archive, replace the placeholder secrets in `.env`, then run:
   ```bash
   docker compose -f docker-compose.yml -f deploy/selfhosted/docker-compose.selfhosted.yml up -d --build
+  ```
+- To verify the package from a clean temporary extraction on alternate local ports, run:
+  ```bash
+  bash scripts/smoke-selfhosted-bundle.sh clean-smoke
   ```
 - The packaged overlay adds restart policies and log rotation defaults without changing the current repo's development flow.
 - The production env template also includes optional satellite coordinator settings for federated deployments and delegated task workers.
 
 ## Next (Phase 1 tasks)
-- Add the next runtime adapters after Kubernetes, Cloud Run, Lambda, and Azure Container Apps.
-- Expand tenant-aware operations beyond the current project-scope model where needed.
-- Expand federated satellite work beyond the current delegated reconcile queue into broader remote execution and richer local autonomy.
-- Keep AI and ML work advisory-first once enough rollout history exists.
-- Expand the UI into the broader multi-cloud product described in the architecture docs.
+- Phase 1 local pilot foundation is now complete when the working tree is committed and pushed.
+- Keep private-pilot positioning honest: founder-led setup, explicit adapter mode, advisory-only AI, and written acceptance of remaining production gaps.
+- Phase 2 has started with persisted incident operator actions and API OIDC/RBAC.
+- Next production-sellability work starts with web/API test depth, production migration tests, signed release bundles, and operations verification.
+- Future product expansion can add deeper runtime adapters, broader satellite autonomy, and the multi-cloud UI depth described in the architecture sections.
 
 ---
 
@@ -559,9 +609,9 @@ AI advisory note:
 
 # 📖 Sentra — Complete Documentation
 
-**Version:** 0.3.0 (Production-Ready)  
-**Last Updated:** June 15, 2026  
-**Status:** ✅ Complete with Phase 2 Production Hardening
+**Version:** 0.3.0 (Beta / Phase 0 Stabilized)
+**Last Updated:** June 15, 2026
+**Status:** Beta/private-pilot foundations with Phase 2 hardening; not production-sellable until the remaining readiness gates are complete.
 
 ---
 
@@ -891,6 +941,9 @@ cd services/controller && go test ./...
 
 # Run integration tests
 node scripts/verify-multi-service-flow.mjs
+
+# Run the real-telemetry demo canary and rollback proof
+bash scripts/run-demo-workload-flow.sh
 ```
 
 ### Environment Configuration
@@ -1053,8 +1106,11 @@ SENTRA_TENANT_HEADER=X-Sentra-Tenant
 SENTRA_CORS_ORIGINS=http://localhost:3000
 
 # Rate Limiting
-SENTRA_RATE_LIMIT_WINDOW_MS=60000
-SENTRA_RATE_LIMIT_MAX_REQUESTS=100
+SENTRA_RATE_LIMIT_BACKEND=redis
+SENTRA_RATE_LIMIT_WINDOW_SEC=60
+SENTRA_RATE_LIMIT_MAX=100
+SENTRA_RATE_LIMIT_REDIS_PREFIX=sentra:rate-limit
+SENTRA_RATE_LIMIT_REDIS_FAIL_OPEN=false
 
 # Request Size
 SENTRA_JSON_BODY_LIMIT=1mb
@@ -1404,8 +1460,11 @@ data:
   SENTRA_LOKI_URL: http://loki:3100
   SENTRA_TEMPO_URL: http://tempo:3200
   SENTRA_CORS_ORIGINS: "https://dashboard.example.com"
-  SENTRA_RATE_LIMIT_WINDOW_MS: "60000"
-  SENTRA_RATE_LIMIT_MAX_REQUESTS: "100"
+  SENTRA_RATE_LIMIT_BACKEND: "redis"
+  SENTRA_RATE_LIMIT_WINDOW_SEC: "60"
+  SENTRA_RATE_LIMIT_MAX: "100"
+  SENTRA_RATE_LIMIT_REDIS_PREFIX: "sentra:rate-limit"
+  SENTRA_RATE_LIMIT_REDIS_FAIL_OPEN: "false"
   SENTRA_HTTPS_ENFORCE: "true"
   SENTRA_HSTS_MAX_AGE: "31536000"
 
@@ -2294,13 +2353,14 @@ node scripts/verify-multi-service-flow.mjs
 - ✅ OpenAPI documentation
 - ✅ Incident detection
 - ✅ Production deployment guides
+- ✅ Local real-telemetry demo canary and rollback proof
 
 ### In Progress / Remaining
 - [ ] Web/Next.js test coverage (Jest)
 - [ ] Database query optimization
-- [ ] Real metrics evaluation
+- [ ] Production runtime telemetry proof beyond the local demo
 - [ ] Dockerfile hardening (minimal images)
-- [ ] Distributed rate limiting
+- [x] Redis-backed API rate limiting for multi-replica deployments
 - [ ] Graceful shutdown tests
 - [ ] Backup/PITR documentation enhancement
 
@@ -2308,7 +2368,7 @@ node scripts/verify-multi-service-flow.mjs
 
 ## Feature Status
 
-### Current Version: 0.3.0 (85-90% Complete)
+### Current Version: 0.3.0 (Beta / Phase 0 Stabilized)
 
 **Major Features Implemented:**
 - ✅ Real-time rollout control
@@ -2560,7 +2620,7 @@ A: Use `/integrations/validate` endpoint to test connectivity. Check network pol
 
 ## Summary
 
-Sentra is a **production-ready, self-hosted deployment control plane** that automates safe rollouts using live telemetry. With **85-90% feature completion**, it supports:
+Sentra is a **beta, self-hosted deployment control plane** that automates safe rollouts using live telemetry. It has strong private-pilot foundations and supports:
 
 - ✅ **Multi-cloud deployments** across AWS, Azure, GCP
 - ✅ **Automatic promotion/rollback** based on SLOs
@@ -2570,9 +2630,9 @@ Sentra is a **production-ready, self-hosted deployment control plane** that auto
 - ✅ **Comprehensive documentation** (setup, operations, deployment)
 - ✅ **Production hardening** (testing, monitoring, incident detection)
 
-**Version:** 0.3.0  
-**Status:** Ready for production deployment  
-**Next:** Web testing, database optimization, real metrics evaluation  
+**Version:** 0.3.0
+**Status:** Ready for private beta / design-partner pilots, not broad production deployment
+**Next:** Real rollout proof, web testing, database optimization, real metrics evaluation
 
 ---
 
@@ -2586,7 +2646,7 @@ Sentra is a **production-ready, self-hosted deployment control plane** that auto
 
 # Sentra Quick Reference Guide
 
-**Version:** 0.3.0 (Production-Ready)
+**Version:** 0.3.0 (Beta / Phase 0 Stabilized)
 
 ---
 
@@ -2975,8 +3035,11 @@ SENTRA_HSTS_MAX_AGE=31536000
 SENTRA_CORS_ORIGINS=https://dashboard.example.com
 
 # Rate limiting
-SENTRA_RATE_LIMIT_WINDOW_MS=60000
-SENTRA_RATE_LIMIT_MAX_REQUESTS=100
+SENTRA_RATE_LIMIT_BACKEND=redis
+SENTRA_RATE_LIMIT_WINDOW_SEC=60
+SENTRA_RATE_LIMIT_MAX=100
+SENTRA_RATE_LIMIT_REDIS_PREFIX=sentra:rate-limit
+SENTRA_RATE_LIMIT_REDIS_FAIL_OPEN=false
 ```
 
 ### Logging
@@ -3074,7 +3137,7 @@ mysqldump -h localhost -u sentra -p sentra > backup.sql
 
 **Current Version:** 0.2.0-beta.1 → 0.3.0 (Hardening)  
 **Report Date:** April 27, 2026 → June 15, 2026 (UPDATED)  
-**Overall Completion:** ~70-75% → ~85-90% ✅
+**Overall Completion:** MVP foundation → beta/private-pilot hardening foundation ✅
 
 ---
 
@@ -3550,13 +3613,14 @@ sentra:rollout:live:index      (all deployment IDs)
 
 ### **Step 10d: Auth, Tenancy & Security** ✅ COMPLETE
 - [x] Bearer token auth (API & controller)
+- [x] OIDC/JWKS auth and API RBAC roles
 - [x] Separate action authority token
 - [x] Tenant-aware project scoping
 - [x] Tenant isolation in queries
 - [x] Response redaction (secret refs, sensitive keys)
 - [x] Inline secret rejection (validation)
 - [x] Configurable CORS allowlist
-- [x] In-process API rate limiting
+- [x] Memory and Redis-backed API rate limiting
 - [x] JSON body size guard
 - [x] Constant-time token comparison
 - [x] Sensitive key pattern detection
@@ -3643,16 +3707,18 @@ deploy/selfhosted/README.md
 
 ### **High-Impact Missing Features**
 
-#### 1. **Direct Real Metrics Evaluation** ❌ NOT DONE
-- [ ] Live error rate monitoring from Prometheus
-- [ ] Live p95 latency monitoring from Prometheus
-- [ ] Live log error ratio from Loki
+#### 1. **Production Runtime Metrics Evaluation** 🟡 PARTIAL
+- [x] Live error rate monitoring from Prometheus in the local demo workload proof
+- [x] Live p95 latency monitoring from Prometheus in the local demo workload proof
+- [x] Live log error ratio from Loki in the local demo workload proof
 - [ ] Live trace failure ratio from Tempo
-- [ ] Real (non-synthetic) metric gates
+- [x] Real non-synthetic metric gates through controller-built telemetry snapshots
+- [ ] Real Kubernetes workload proof outside local simulation
+- [ ] Provider-specific telemetry examples for production runtimes
 
-**Current Status:** Only synthetic/test data in local runs; real metrics work in validation but not in rollout decisions yet
+**Current Status:** Local demo canary and rollback now use real Prometheus/Loki signals in rollout decisions. Production runtime proof, Tempo trace failure gating, and provider-specific telemetry setup are still pending.
 
-**Why Missing:** Monitoring is hardcoded to synthetic values; real-world testing needed
+**Why Still Partial:** The local proof uses Sentra's simulation traffic adapter and demo workload telemetry. Paid production launch still needs a real workload target, provider-specific telemetry setup, and runtime acceptance testing.
 
 ---
 
@@ -3717,15 +3783,15 @@ deploy/selfhosted/README.md
 ---
 
 #### 6. **Rate Limiting** 🟡 PARTIAL
-- [x] Basic in-process API rate limiting
+- [x] Memory-backed API rate limiting
+- [x] Shared Redis-backed rate limiting for multi-replica API deployments
 - [x] Configurable window and request cap
-- [ ] Shared/distributed rate limiting for multi-replica API deployments
 - [ ] Per-endpoint rate limits
 - [ ] Brute force protection
 
-**Current Status:** Basic API-wide limiter exists; production gateways should still enforce edge limits
+**Current Status:** API-wide limiter supports memory or Redis-backed counters; production gateways should still enforce edge and per-endpoint limits
 
-**Impact:** Improved local and single-replica protection; still needs gateway/distributed enforcement at scale
+**Impact:** Improved local, single-replica, and multi-replica API protection; still needs gateway/per-endpoint tuning at scale
 
 ---
 
@@ -3795,7 +3861,7 @@ deploy/selfhosted/README.md
 - [ ] Request signature validation
 - [ ] Replay attack prevention
 
-**Current Status:** Only bearer token auth
+**Current Status:** Historical gap note; the current API supports bearer tokens plus optional OIDC/RBAC, and satellite request signing exists for machine calls.
 
 **Impact:** Satellite traffic could be spoofed
 
@@ -3918,7 +3984,7 @@ OVERALL:                      ██████████████░░�
 4. **Finish Dockerfile base-image review** (minimal runtime images)
 
 ### 🟠 High (Weeks 3-4)
-5. **Add distributed or gateway rate limiting** for multi-replica deployments
+5. **Tune gateway and per-endpoint rate limiting** for production deployments
 6. **Add structured logging** (pino/zap)
 7. **Add production HTTPS and secure-header guidance**
 8. **Profile database queries and tune remaining indexes**
@@ -3966,7 +4032,7 @@ OVERALL:                      ██████████████░░�
 - ⚠️ API tests are still shallow → critical route coverage remains missing
 - ⚠️ CI/CD lacks image build, SAST, and coverage gates
 - ❌ No structured logging → hard to troubleshoot production issues
-- ⚠️ Only in-process rate limiting → needs edge/distributed enforcement for scale
+- ⚠️ Redis-backed API rate limiting exists, but edge/per-endpoint throttles still need production tuning
 
 ### Medium Risk
 - ⚠️ First indexes exist, but slow-query profiling is still missing
@@ -4504,7 +4570,7 @@ If we can make this story work for one deployment target and one service, the re
 
 ## Phase 2: Production Hardening (June 15, 2026)
 
-**Objective:** Advance Sentra from MVP (70-75% complete) to Production-Ready (85-90% complete) by implementing comprehensive testing, security, observability, and deployment documentation.
+**Objective:** Advance Sentra from MVP toward pilot-ready production-hardening foundations by implementing comprehensive testing, security, observability, and deployment documentation.
 
 **Status:** ✅ COMPLETE
 
@@ -4673,7 +4739,7 @@ If we can make this story work for one deployment target and one service, the re
 - Secure headers: 30 lines
 - Documentation: 3500+ lines
 
-**Total: 4,300+ lines of production-ready code and documentation**
+**Total: 4,300+ lines of production-hardening code and documentation**
 
 **Test Coverage:**
 - 25+ API integration tests
@@ -4693,7 +4759,7 @@ If we can make this story work for one deployment target and one service, the re
 
 **Before Phase 2:** MVP system that could control rollouts but lacked testing, observability, and operational documentation.
 
-**After Phase 2:** Production-ready platform with:
+**After Phase 2:** Pilot-ready platform foundation with:
 - Comprehensive test coverage
 - Structured JSON logging for enterprise SIEM
 - Automatic incident detection
@@ -4703,16 +4769,16 @@ If we can make this story work for one deployment target and one service, the re
 - Incident response runbooks
 - Complete API documentation
 
-**Completion:** 70-75% → 85-90% (advancement of ~15-20% in single implementation cycle)
+**Completion:** 70-75% → beta/private-pilot foundation (advancement of ~15-20% in single implementation cycle)
 
 ### Remaining Work (7 items)
 
 High-priority items to reach 95-100%:
 1. Web/Next.js test coverage (Jest component tests)
 2. Database query optimization & profiling
-3. Real metrics evaluation in rollout decisions
+3. Production runtime metrics evaluation beyond the local demo
 4. Dockerfile hardening (minimal base images)
-5. Distributed rate limiting (Redis-backed)
+5. Edge/per-endpoint rate-limit tuning on top of the Redis API limiter
 6. Graceful shutdown & worker-drain tests
 7. Backup snapshot & PITR strategy documentation
 
@@ -4821,12 +4887,12 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
   - Add secure-header middleware or reverse-proxy rules with the TLS setup
 
 ### 10. **Rate Limiting Needs Distributed Enforcement**
-- **Current:** Basic in-process API-wide rate limiting now exists
-- **Remaining Risk:** Multi-replica API deployments need gateway or shared-store rate limiting
+- **Current:** API-wide rate limiting now supports memory or Redis-backed counters
+- **Remaining Risk:** Production deployments still need gateway/per-endpoint limits and multi-replica tuning
 - **Recommendation:**
   - Add edge/gateway rate limits for production
   - Add per-endpoint limits for sensitive write paths
-  - Consider Redis-backed limits if the API runs multiple replicas
+  - Use Redis-backed limits when the API runs multiple replicas
 
 ### 11. **Dockerfile Issues**
 - **Current:** Runtime images now include health checks and non-root users
@@ -4984,7 +5050,7 @@ Sentra is a sophisticated multi-service deployment control plane with solid arch
 ## Recommended Implementation Order
 
 1. **Phase 1 (Weeks 1-2):** Add tests for API + Web (critical) + CI/CD
-2. **Phase 2 (Weeks 3-4):** Finish Docker base-image review, add distributed rate limiting, improve logging
+2. **Phase 2 (Weeks 3-4):** Finish Docker base-image review, tune gateway/per-endpoint rate limiting, improve logging
 3. **Phase 3 (Weeks 5-6):** Cloud adapter implementations, security hardening
 4. **Phase 4 (Weeks 7+):** Performance optimization, monitoring, advanced features
 
@@ -6066,7 +6132,7 @@ services/api/
     |-- redis.ts                 Redis client wiring
     |-- events.ts                Rollout event publishing/streaming helpers
     |-- http.ts                  Shared HTTP helpers
-    |-- middleware.ts            CORS and in-process API rate limiting
+    |-- middleware.ts            CORS and memory/Redis API rate limiting
     |-- security.ts              API auth, tenancy, and redaction helpers
     |-- telemetry.ts             API-side telemetry validation helpers
     |-- rollout-safety.ts        Stable fallback and rollout policy validation
@@ -6097,7 +6163,7 @@ Current API responsibilities:
 - AI advisory history, evaluation, benchmark, dataset, and candidate comparison surfaces
 - tenant-aware reads and writes when tenancy is enabled
 - optional action-authority checks for human/operator write routes
-- configurable CORS, JSON body limits, and in-process rate limiting
+- configurable CORS, JSON body limits, and memory/Redis-backed rate limiting
 - secret redaction and inline secret rejection for integration config
 
 ### `services/controller`
@@ -7032,7 +7098,15 @@ Sentra separates three kinds of authority:
 
 This means an operator can trigger an approved rollback through Sentra without having personal AWS, Azure, GCP, or Kubernetes admin access. It also means a read-only Sentra user should not be able to turn Sentra into an indirect cloud-admin path.
 
-In local development, the extra action-authority gate is off unless `SENTRA_ACTION_TOKEN` is configured.
+In local development, the extra action-authority gate is off unless `SENTRA_ACTION_TOKEN` or `SENTRA_RBAC_ENABLED` is configured.
+
+For SSO-backed pilots, configure OIDC with `SENTRA_OIDC_ISSUER`, `SENTRA_OIDC_AUDIENCE`, and either `SENTRA_OIDC_JWKS_URL` or discovery. Then enable `SENTRA_RBAC_ENABLED=true` and map identity-provider role claims into:
+
+- `viewer` for read-only API access
+- `operator` for rollout/operator writes
+- `admin` for full Sentra API authority
+
+When `SENTRA_RBAC_ACTION_TOKEN_FALLBACK=false`, human write authority comes from OIDC `operator` or `admin` roles instead of the shared `SENTRA_ACTION_TOKEN`.
 
 ## Glossary and why Sentra uses these words
 
@@ -7595,16 +7669,19 @@ Run Sentra behind a TLS-terminating reverse proxy such as Caddy, NGINX, Traefik,
 
 ## API Request Guardrails
 
-The API has built-in CORS and in-memory rate limiting.
+The API has built-in CORS plus memory or Redis-backed rate limiting. Local defaults use memory; self-hosted production defaults use Redis through `REDIS_URL`.
 
 - `SENTRA_CORS_ORIGINS`: comma-separated allowed browser origins.
 - `SENTRA_CORS_ALLOW_CREDENTIALS`: whether to send credentialed CORS responses.
 - `SENTRA_RATE_LIMIT_ENABLED`: set to `false` only for controlled local debugging.
+- `SENTRA_RATE_LIMIT_BACKEND`: `memory` or `redis`; when unset, the API uses Redis if `REDIS_URL` is configured.
 - `SENTRA_RATE_LIMIT_WINDOW_SEC`: rate-limit window size.
 - `SENTRA_RATE_LIMIT_MAX`: requests allowed per client IP in the window.
+- `SENTRA_RATE_LIMIT_REDIS_PREFIX`: Redis key prefix for shared limiter counters.
+- `SENTRA_RATE_LIMIT_REDIS_FAIL_OPEN`: set to `true` only if availability should override rate-limit enforcement during Redis outages.
 - `SENTRA_JSON_BODY_LIMIT`: JSON body size limit.
 
-For multi-replica API deployments, use the same settings at the reverse proxy or gateway too, because the built-in limiter is per process.
+For multi-replica API deployments, use the Redis backend and keep companion limits at the reverse proxy or gateway for edge protection and per-endpoint throttles.
 
 ## Graceful Shutdown
 
@@ -8705,7 +8782,7 @@ kubectl set env deployment/sentra-api SENTRA_DB_POOL_SIZE=30 -n sentra
 
 ## Overview
 
-This document summarizes the completion of critical production-readiness features for Sentra, advancing the project from **~70% MVP completion** to **~90% production-ready** status.
+This document summarizes the completion of critical production-readiness features for Sentra, advancing the project from **~70% MVP completion** toward a beta/private-pilot foundation.
 
 ## Completed Features in This Phase
 
@@ -9054,7 +9131,7 @@ Feature Completion:
   ✅ UI/Frontend                    100%
   ✅ Platform Expansion             85%  → 95% (NEW)
 
-Overall Completion: 70-75% → 85-90%
+Overall Completion: MVP foundation → beta/private-pilot hardening foundation
 ```
 
 ### New Files/Modules Created
@@ -9103,11 +9180,11 @@ Overall Completion: 70-75% → 85-90%
 ### Critical (Sprint N+1)
 - [ ] Web/Next.js test coverage (Jest components)
 - [ ] Database query optimization & profiling
-- [ ] Real metrics evaluation in decisions
+- [ ] Production runtime metrics evaluation beyond the local demo
 - [ ] Dockerfile hardening (minimal base images)
 
 ### High-Priority (Sprint N+2)
-- [ ] Distributed rate limiting for multi-replica deployments
+- [ ] Gateway/per-endpoint rate-limit tuning for production deployments
 - [ ] AI dataset quality improvements
 - [ ] Graceful shutdown & worker-drain tests
 - [ ] Point-in-time recovery (PITR) documentation
@@ -9209,8 +9286,11 @@ SENTRA_HSTS_MAX_AGE=31536000
 ### 4. Enable Security Features
 ```bash
 SENTRA_INCIDENT_DETECTION_ENABLED=true
-SENTRA_RATE_LIMIT_MAX_REQUESTS=100
-SENTRA_RATE_LIMIT_WINDOW_MS=60000
+SENTRA_RATE_LIMIT_BACKEND=redis
+SENTRA_RATE_LIMIT_MAX=100
+SENTRA_RATE_LIMIT_WINDOW_SEC=60
+SENTRA_RATE_LIMIT_REDIS_PREFIX=sentra:rate-limit
+SENTRA_RATE_LIMIT_REDIS_FAIL_OPEN=false
 ```
 
 ### 5. Update Monitoring
@@ -9239,7 +9319,7 @@ SENTRA_RATE_LIMIT_WINDOW_MS=60000
 
 ## Conclusion
 
-Sentra has advanced from a capable MVP to a **production-ready platform** with:
+Sentra has advanced from a capable MVP to a **pilot-ready platform foundation** with:
 
 ✅ **Comprehensive Testing** - 25+ integration tests  
 ✅ **Automated Security** - Vulnerability scanning in CI/CD  
@@ -9271,7 +9351,7 @@ Sentra has advanced from a capable MVP to a **production-ready platform** with:
 
 ## Executive Summary
 
-All Phase 2 production-hardening features have been successfully applied to the Sentra codebase. The project has advanced from ~70-75% completion (MVP) to **85-90% production-ready** status.
+All Phase 2 production-hardening features have been successfully applied to the Sentra codebase. The project has advanced from ~70-75% completion (MVP) toward a **beta/private-pilot** status.
 
 **Total Implementation:** 4,300+ lines of code and documentation  
 **Files Modified:** 8  
@@ -9301,17 +9381,18 @@ All Phase 2 production-hardening features have been successfully applied to the 
 - Permissions-Policy
 - X-Permitted-Cross-Domain-Policies
 
-**Status:** Production-ready, all routes protected
+**Status:** Beta-ready locally; production authorization still needs real identity-provider acceptance and route coverage
 
 ---
 
 #### 2. Incidents Management API Integration ✅
-**File:** `services/api/src/incidents.ts`  
+**Files:** `services/api/src/routes/incidents.ts`, `db/migrations/008_incident_actions.sql`
 **Integration Points:**
-- [x] Imported in `services/api/src/index.ts` as `globalIncidentDetector`
-- [x] 5 new API endpoints registered
+- [x] Mounted in `services/api/src/index.ts` as the persisted incidents router
+- [x] 5 API endpoints registered
 - [x] Tenant-scoped access control
-- [x] Full incident lifecycle support
+- [x] Manual acknowledge, note, and resolve actions persist with audit events
+- [ ] Controller auto-resolve action rows and notification integrations
 
 **Endpoints Added:**
 ```
@@ -9512,7 +9593,7 @@ POST /incidents/:id/notes        — add investigation notes
    - API integration notes added
    - Statistics updated
 
-**Status:** All production-ready and complete
+**Status:** Phase 2 hardening integrated; production acceptance remains pending
 
 ---
 
@@ -9576,18 +9657,18 @@ node scripts/verify-multi-service-flow.mjs
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Security headers | ✅ Active | All routes protected |
-| Structured logging | ✅ Ready | Controller implemented, API configured |
-| HTTPS/TLS guides | ✅ Complete | All platforms covered |
-| API documentation | ✅ Live | Swagger UI + OpenAPI spec |
-| Incident detection | ✅ Integrated | 5 endpoints exposed |
-| Request signing | ✅ Ready | Available for satellite auth |
-| CI/CD security scan | ✅ Active | Trivy on every build |
-| Test coverage | ✅ 60%+ | 25+ integration tests |
-| Deployment guides | ✅ Complete | K8s, ECS, Azure, Docker |
-| Monitoring setup | ✅ Documented | Prometheus, Loki, Tempo |
-| Backup strategy | ✅ Documented | MySQL, snapshots, PITR |
-| Incident response | ✅ Documented | Runbooks and procedures |
+| Security headers | 🟡 Partial | Middleware and guidance exist; production TLS/auth boundary still needs deployment validation |
+| Structured logging | 🟡 Partial | Controller logging is structured; API log coverage and correlation still need hardening |
+| HTTPS/TLS guides | ✅ Documented | Guides exist; target environment must still prove TLS and renewal |
+| API documentation | ✅ Live | Swagger UI and OpenAPI spec are available |
+| Incident detection | 🟡 Partial | Controller incidents and manual API operator actions now persist to MySQL; controller auto-resolve action rows and notifications remain |
+| Request signing | ✅ Ready | Satellite signing and replay protection are available |
+| CI/CD security scan | 🟡 Partial | CI exists; sellability should still require image build, scan, and coverage gates to pass in CI |
+| Test coverage | 🟡 Partial | API/controller/AI/regression pass; web and tenant-isolation coverage are still thin |
+| Deployment guides | 🟡 Partial | Self-hosted bundle and guides exist; real pilot target acceptance is still required |
+| Monitoring setup | 🟡 Partial | Local Prometheus/Loki proof passes; production runtime telemetry setup remains per-pilot |
+| Backup strategy | 🟡 Partial | Compose backup/restore commands exist; snapshot and PITR verification remain |
+| Incident response | 🟡 Partial | Runbook guidance exists; notification integrations and lifecycle audit depth remain |
 
 ---
 
@@ -9624,7 +9705,7 @@ node scripts/verify-multi-service-flow.mjs
 ### Middleware Overhead
 - **Secure headers:** <1ms per request (header setting only)
 - **Structured logging:** ~1-2ms per request (JSON serialization)
-- **Rate limiting:** <1ms per request (in-memory counter)
+- **Rate limiting:** <1ms per request with memory counters; Redis-backed limits add one local Redis round trip
 - **CORS checking:** <1ms per request
 
 **Total:** ~3-4ms additional per request in worst case  
@@ -9692,20 +9773,19 @@ docker logs sentra-controller | jq '.'
 
 ---
 
-## What's Not Yet Done (Remaining 7 Tasks)
+## What's Not Yet Done (Remaining 6 Tasks)
 
 ### High Priority
 1. **Web/Next.js test coverage** — Jest component tests
-2. **Real metrics evaluation** — Replace synthetic data in rollout decisions
+2. **Production runtime metrics evaluation** — Prove the real telemetry path on an actual pilot workload target
 3. **Database optimization** — Query profiling and indexing
 
 ### Medium Priority
 4. **Dockerfile hardening** — Minimal base images (alpine, distroless)
-5. **Distributed rate limiting** — Redis-backed for multi-replica
-6. **Graceful shutdown tests** — Worker drain verification
+5. **Graceful shutdown tests** — Worker drain verification
 
 ### Low Priority
-7. **Backup strategy documentation** — PITR and volume snapshots
+6. **Backup strategy documentation** — PITR and volume snapshots
 
 ---
 
@@ -9722,11 +9802,11 @@ All production-hardening features have been successfully:
 
 **Project Status:**
 - Before Phase 2: **70-75%** MVP completion
-- After Phase 2: **85-90%** Production-Ready
+- After Phase 2: **beta/private-pilot foundation**
 - Remaining work: **7 tasks** (next phase)
 - Estimated time to 95-100%: **2-3 iterations**
 
-The Sentra project is now **production-ready** for:
+The Sentra project is now **private-pilot ready** for:
 - Multi-cloud deployment (Kubernetes, ECS, Azure, Lambda, Cloud Run)
 - Enterprise security (HTTPS/TLS, request signing, multi-tenant isolation)
 - Observability (structured JSON logging, incident detection, monitoring)
@@ -9736,7 +9816,7 @@ The Sentra project is now **production-ready** for:
 
 **Next Action:** Begin Phase 3 by implementing Web/Next.js tests and real metrics evaluation.
 
-**Deployment Approved:** ✅ Ready for production release as v0.3.0
+**Deployment Approved:** Private beta only; production release approval remains pending.
 
 ---
 
@@ -9796,7 +9876,7 @@ It is meant for operators who want to unpack one archive, fill in environment va
 - `deploy/selfhosted/docker-compose.selfhosted.yml` as a runtime overlay
 - `deploy/selfhosted/.env.production.example` as the production-oriented env template
 - API, controller, and web source trees so the stack can build locally
-- Database migrations, observability config, and verification scripts
+- Database migrations, observability config, the optional demo workload, and verification scripts
 
 ## Install
 
@@ -9813,6 +9893,12 @@ docker compose -f docker-compose.yml -f deploy/selfhosted/docker-compose.selfhos
 
 ```bash
 bash scripts/smoke-local-stack.sh
+```
+
+To prove the local telemetry-driven canary and rollback path, start the optional demo profile and verifier:
+
+```bash
+bash scripts/run-demo-workload-flow.sh
 ```
 
 ## What the overlay changes

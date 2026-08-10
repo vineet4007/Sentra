@@ -12,11 +12,11 @@ import environmentRouter from './routes/environments.js'
 import { closeClient, createClient } from './redis.js'
 import healthRouter from './routes/health.js'
 import integrationRouter from './routes/integrations.js'
+import incidentRouter from './routes/incidents.js'
 import policyRouter from './routes/policies.js'
 import projectRouter from './routes/projects.js'
 import rolloutRouter from './routes/rollouts.js'
 import satelliteRouter from './routes/satellites.js'
-import { globalIncidentDetector } from './incidents.js'
 import {
   createActionAuthorityMiddleware,
   createApiSecurityMiddleware,
@@ -47,93 +47,13 @@ app.use('/ai', aiRouter)
 app.use('/projects', projectRouter)
 app.use('/environments', environmentRouter)
 app.use('/integrations', integrationRouter)
+app.use('/incidents', incidentRouter)
 app.use('/policies', policyRouter)
 app.use('/deployments', deploymentRouter)
 app.use('/rollouts', rolloutRouter)
 app.use('/satellites', satelliteRouter)
 
-// Incidents endpoint
-app.get('/incidents', asyncHandler(async (req, res) => {
-  const deploymentId = req.query.deploymentId ? Number(req.query.deploymentId) : undefined
-  const tenantKey = getRequestTenantKey(req, security)
-  
-  // Verify tenant access if tenant scoping is enabled
-  if (tenantKey && deploymentId) {
-    const hasAccess = await deploymentBelongsToTenant(deploymentId, tenantKey)
-    if (!hasAccess) {
-      return sendErrorResponse(res, 403, 'Forbidden', 'No access to this deployment')
-    }
-  }
-  
-  const incidents = deploymentId 
-    ? globalIncidentDetector.getIncidents(deploymentId)
-    : globalIncidentDetector.getIncidents()
-  
-  res.json({ items: incidents })
-}))
-
-app.get('/incidents/:id', asyncHandler(async (req, res) => {
-  const id = req.params.id
-  const incidents = globalIncidentDetector.getIncidents()
-  const incident = incidents.find((i) => i.id === id)
-  
-  if (!incident) {
-    return sendErrorResponse(res, 404, 'Not Found', 'Incident not found')
-  }
-  
-  const tenantKey = getRequestTenantKey(req, security)
-  if (tenantKey && !(await deploymentBelongsToTenant(incident.deploymentId, tenantKey))) {
-    return sendErrorResponse(res, 403, 'Forbidden', 'No access to this incident')
-  }
-  
-  res.json(incident)
-}))
-
-app.post('/incidents/:id/acknowledge', createActionAuthorityMiddleware(security), asyncHandler(async (req, res) => {
-  const id = req.params.id
-  const { assignee } = req.body as { assignee?: string }
-  
-  try {
-    globalIncidentDetector.acknowledgeIncident(id, assignee || 'unknown')
-    const incidents = globalIncidentDetector.getIncidents()
-    const incident = incidents.find((i) => i.id === id)
-    res.json(incident)
-  } catch (error) {
-    sendErrorResponse(res, 400, 'Bad Request', String(error))
-  }
-}))
-
-app.post('/incidents/:id/resolve', createActionAuthorityMiddleware(security), asyncHandler(async (req, res) => {
-  const id = req.params.id
-  const { resolution } = req.body as { resolution?: string }
-  
-  try {
-    globalIncidentDetector.resolveIncident(id, resolution || 'resolved')
-    const incidents = globalIncidentDetector.getIncidents()
-    const incident = incidents.find((i) => i.id === id)
-    res.json(incident)
-  } catch (error) {
-    sendErrorResponse(res, 400, 'Bad Request', String(error))
-  }
-}))
-
-app.post('/incidents/:id/notes', createActionAuthorityMiddleware(security), asyncHandler(async (req, res) => {
-  const id = req.params.id
-  const { note, author } = req.body as { note?: string; author?: string }
-  
-  if (!note) {
-    return sendErrorResponse(res, 400, 'Bad Request', 'Note content required')
-  }
-  
-  try {
-    globalIncidentDetector.addNote(id, note, author || 'unknown')
-    const incidents = globalIncidentDetector.getIncidents()
-    const incident = incidents.find((i) => i.id === id)
-    res.json(incident)
-  } catch (error) {
-    sendErrorResponse(res, 400, 'Bad Request', String(error))
-  }
-}))
+app.get('/events', asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')

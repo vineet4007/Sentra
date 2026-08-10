@@ -455,14 +455,14 @@ export const openApiSpec = {
       bearerAuth: {
         type: 'http',
         scheme: 'bearer',
-        bearerFormat: 'token',
-        description: 'Bearer token for read access. Format: Bearer <tenantKey>:<token>',
+        bearerFormat: 'token or OIDC JWT',
+        description: 'Read access token. Use SENTRA_API_BEARER_TOKEN for static deployments or an OIDC JWT when SENTRA_OIDC_* is configured.',
       },
       actionAuth: {
         type: 'http',
         scheme: 'bearer',
-        bearerFormat: 'action-token',
-        description: 'Action authority token for write operations. Format: Bearer <tenantKey>:<token>',
+        bearerFormat: 'action-token or OIDC operator/admin role',
+        description: 'Write authority. Use SENTRA_ACTION_HEADER for transitional static authorization, or an OIDC principal with an operator/admin RBAC role.',
       },
     },
     schemas: {

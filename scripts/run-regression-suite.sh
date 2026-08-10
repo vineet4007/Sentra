@@ -41,14 +41,37 @@ run_step() {
   fi
 }
 
+run_node_step() {
+  local name="$1"
+  local script_path="$2"
+  shift 2
+
+  if command -v node >/dev/null 2>&1; then
+    run_step "$name" node "$script_path" "$@"
+    return
+  fi
+
+  run_step "$name" docker run --rm \
+    --add-host=host.docker.internal:host-gateway \
+    --user "$(id -u):$(id -g)" \
+    -v "$ROOT_DIR:/repo" \
+    -w /repo \
+    -e "SENTRA_API_URL=${SENTRA_API_URL:-http://host.docker.internal:8080}" \
+    -e "SENTRA_CONTROLLER_URL=${SENTRA_CONTROLLER_URL:-http://host.docker.internal:8090}" \
+    -e "SENTRA_INTERNAL_PROMETHEUS_URL=${SENTRA_INTERNAL_PROMETHEUS_URL:-http://prometheus:9090}" \
+    -e "SENTRA_INTERNAL_LOKI_URL=${SENTRA_INTERNAL_LOKI_URL:-http://loki:3100}" \
+    -e "SENTRA_INTERNAL_TEMPO_URL=${SENTRA_INTERNAL_TEMPO_URL:-http://tempo:3200}" \
+    node:20-alpine node "$script_path" "$@"
+}
+
 run_step ai-test docker compose run --rm --no-deps ai python -m unittest discover -s tests
 run_step smoke bash scripts/smoke-local-stack.sh
-run_step integration node scripts/verify-rollout-flow.mjs
-run_step multiservice node scripts/verify-multi-service-flow.mjs
+run_node_step integration scripts/verify-rollout-flow.mjs
+run_node_step multiservice scripts/verify-multi-service-flow.mjs
 run_step federation bash scripts/verify-federation-flow.sh
-run_step ai-benchmark node scripts/generate-ai-benchmark-report.mjs
-run_step ai-dataset node scripts/export-ai-training-dataset.mjs
-run_step ai-train-profile node scripts/train-ai-risk-profile.mjs
+run_node_step ai-benchmark scripts/generate-ai-benchmark-report.mjs
+run_node_step ai-dataset scripts/export-ai-training-dataset.mjs
+run_node_step ai-train-profile scripts/train-ai-risk-profile.mjs
 
 cat >> "$SUMMARY_MD" <<EOF
 

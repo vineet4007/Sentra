@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: up down logs build fmt lint ci db-migrate db-backup db-restore smoke integration multiservice federation verify regression package ai-test ai-benchmark ai-dataset ai-train-profile
+.PHONY: up down logs build fmt lint ci db-migrate db-backup db-restore smoke integration multiservice federation demo-workload verify regression package ai-test ai-benchmark ai-dataset ai-train-profile
 
 up:
 	docker compose up -d --build
@@ -57,6 +57,9 @@ multiservice:
 
 federation:
 	bash scripts/verify-federation-flow.sh
+
+demo-workload:
+	bash scripts/run-demo-workload-flow.sh
 
 verify: smoke integration multiservice federation
 

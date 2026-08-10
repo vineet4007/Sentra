@@ -1,6 +1,8 @@
 # Node
 node_modules/
 dist/
+.next/
+**/.next/
 *.log
 
 # Typescript
@@ -10,6 +12,11 @@ dist/
 bin/
 *.exe
 *.test
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
 
 # Env
 .env

@@ -1,41 +1,59 @@
 {
-  "generatedAt": "2026-03-27T06:08:14.692Z",
+  "generatedAt": "2026-08-10T11:01:48.467Z",
   "releaseVersion": "0.2.0-beta.1",
-  "datasetPath": "/Users/vineetchauhan/Desktop/AshSan/Sentra/reports/ai/datasets/candidate-latest.jsonl",
-  "rowCount": 43,
-  "resolvedRowCount": 13,
-  "riskyRowCount": 13,
+  "datasetPath": "/repo/reports/ai/datasets/candidate-latest.jsonl",
+  "rowCount": 148,
+  "resolvedRowCount": 50,
+  "riskyRowCount": 50,
   "riskyOutcomePct": 100,
   "recommendationRisk": [
     {
       "key": "rollback",
-      "sampleCount": 13,
-      "riskyCount": 13,
+      "sampleCount": 47,
+      "riskyCount": 47,
+      "riskyOutcomePct": 100
+    },
+    {
+      "key": "collect_more_data",
+      "sampleCount": 3,
+      "riskyCount": 3,
       "riskyOutcomePct": 100
     }
   ],
   "predictedOutcomeRisk": [
     {
       "key": "rollback_expected",
-      "sampleCount": 13,
-      "riskyCount": 13,
+      "sampleCount": 47,
+      "riskyCount": 47,
+      "riskyOutcomePct": 100
+    },
+    {
+      "key": "awaiting_data",
+      "sampleCount": 3,
+      "riskyCount": 3,
       "riskyOutcomePct": 100
     }
   ],
   "severityRisk": [
     {
       "key": "critical",
-      "sampleCount": 13,
-      "riskyCount": 13,
+      "sampleCount": 47,
+      "riskyCount": 47,
+      "riskyOutcomePct": 100
+    },
+    {
+      "key": "low",
+      "sampleCount": 3,
+      "riskyCount": 3,
       "riskyOutcomePct": 100
     }
   ],
   "rollbackProbabilityBuckets": [
     {
       "bucket": "0-24",
-      "sampleCount": 0,
-      "riskyCount": 0,
-      "riskyOutcomePct": null
+      "sampleCount": 3,
+      "riskyCount": 3,
+      "riskyOutcomePct": 100
     },
     {
       "bucket": "25-49",
@@ -51,8 +69,8 @@
     },
     {
       "bucket": "75-100",
-      "sampleCount": 13,
-      "riskyCount": 13,
+      "sampleCount": 47,
+      "riskyCount": 47,
       "riskyOutcomePct": 100
     }
   ],
@@ -71,28 +89,28 @@
     },
     {
       "bucket": "50-74",
-      "sampleCount": 0,
-      "riskyCount": 0,
-      "riskyOutcomePct": null
+      "sampleCount": 3,
+      "riskyCount": 3,
+      "riskyOutcomePct": 100
     },
     {
       "bucket": "75-100",
-      "sampleCount": 13,
-      "riskyCount": 13,
+      "sampleCount": 47,
+      "riskyCount": 47,
       "riskyOutcomePct": 100
     }
   ],
   "anomalyKindRisk": [
     {
       "key": "incident_pressure",
-      "sampleCount": 13,
-      "riskyCount": 13,
+      "sampleCount": 47,
+      "riskyCount": 47,
       "riskyOutcomePct": 100
     },
     {
       "key": "telemetry_failure",
-      "sampleCount": 13,
-      "riskyCount": 13,
+      "sampleCount": 47,
+      "riskyCount": 47,
       "riskyOutcomePct": 100
     }
   ]
